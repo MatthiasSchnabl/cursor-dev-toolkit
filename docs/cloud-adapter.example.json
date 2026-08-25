@@ -1,0 +1,4 @@
+{
+  "install": "git clone --depth 1 --branch v0.1.0 https://github.com/MatthiasSchnabl/cursor-dev-toolkit.git \"$HOME/.cursor-dev-toolkit\" && chmod +x \"$HOME/.cursor-dev-toolkit/scripts/\"*.sh \"$HOME/.cursor-dev-toolkit/scripts/lib/\"*.sh && CURSOR_DEV_TOOLKIT_ROOT=\"$HOME/.cursor-dev-toolkit\" \"$HOME/.cursor-dev-toolkit/scripts/cloud-install.sh\"",
+  "start": "CURSOR_DEV_TOOLKIT_ROOT=\"$HOME/.cursor-dev-toolkit\" \"$HOME/.cursor-dev-toolkit/scripts/cloud-start.sh\""
+}

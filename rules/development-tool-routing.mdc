@@ -1,0 +1,34 @@
+---
+description: Global development tool routing for GBrain, Graphify, Superpowers, and gstack
+alwaysApply: true
+---
+
+# Engineering context and tool routing
+
+| Tool | Role |
+|------|------|
+| **GBrain** | Durable project knowledge, history, previous decisions |
+| **Graphify** | Structural codebase understanding and change-impact analysis |
+| **Superpowers** | Engineering method: planning, TDD, debugging, verification |
+| **gstack** | Selective additional review / QA when complexity or risk justifies it |
+
+## When to use each tool
+
+**GBrain** — prior decisions, historical constraints, conventions not in code. Not for source-code search.
+
+**Graphify** — architecture discovery, dependencies, change impact. Run `graphify query` before broad grep on structural questions. Graph is per-repo at `graphify-out/`.
+
+**Superpowers** — process discipline (`writing-plans`, `test-driven-development`, `systematic-debugging`, `verification-before-completion`). Do not wrap or replace its bootstrap.
+
+**gstack** — selective review/QA (`/gstack-review`, `/gstack-qa`, `/gstack-investigate`). Not mandatory per slice.
+
+## Avoid tool inflation
+
+Do not chain all four tools for every small change.
+
+- Small bug: Superpowers debugging + targeted tests may suffice.
+- Architecture change: GBrain + Graphify + Superpowers planning + optional gstack review.
+- Historical question: GBrain alone may suffice.
+- Dependency question: Graphify alone may suffice.
+
+Project-specific rules in `AGENTS.md` take precedence over this global routing.

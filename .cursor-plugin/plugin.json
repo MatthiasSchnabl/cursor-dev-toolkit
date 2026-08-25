@@ -1,0 +1,17 @@
+{
+  "name": "cursor-dev-toolkit",
+  "displayName": "Cursor Dev Toolkit",
+  "description": "Global developer tooling: GBrain, Graphify, Superpowers, gstack — routing, bootstrap, and verification",
+  "version": "0.1.0",
+  "author": {
+    "name": "Matthias Schnabl"
+  },
+  "homepage": "https://github.com/MatthiasSchnabl/cursor-dev-toolkit",
+  "repository": "https://github.com/MatthiasSchnabl/cursor-dev-toolkit",
+  "license": "MIT",
+  "keywords": ["gbrain", "graphify", "gstack", "superpowers", "tooling"],
+  "rules": "./rules/",
+  "skills": "./skills/",
+  "commands": "./commands/",
+  "hooks": "./hooks/hooks.json"
+}
