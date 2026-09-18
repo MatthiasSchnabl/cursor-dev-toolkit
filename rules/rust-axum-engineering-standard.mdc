@@ -1,0 +1,1661 @@
+---
+description: Production-grade Axum/HTTP engineering standard — thin handlers, security, observability, cancellation safety
+globs: "**/*.rs,**/Cargo.toml,**/rust-toolchain.toml,**/.cargo/**"
+alwaysApply: false
+---
+
+# Rust Axum Engineering Standard
+
+These instructions are mandatory for all HTTP/API code built with Axum, Tokio, Tower, and related libraries in this repository.
+
+This standard supplements the general Rust Engineering Standard.
+
+The goal is a production-grade HTTP service that is:
+
+* correct
+* type-safe
+* secure
+* observable
+* resilient
+* cancellation-safe
+* resource-efficient
+* performant
+* testable
+* maintainable
+* understandable by humans and coding agents
+
+Axum handlers are transport adapters, not the application architecture.
+
+Do not place business logic into handlers merely because Axum makes handlers easy to write.
+
+---
+
+# 1. Priority Order
+
+When Axum/API design decisions conflict, use this order:
+
+1. Correct HTTP and domain semantics
+2. Security
+3. Data integrity
+4. Cancellation and concurrency safety
+5. Explicit API contracts
+6. Maintainability
+7. Observability
+8. Resource protection
+9. Measured performance
+10. Convenience
+
+Never sacrifice correctness or security for handler brevity.
+
+Never sacrifice architectural boundaries merely to reduce the number of files or types.
+
+---
+
+# 2. Architectural Principle
+
+Treat Axum as the HTTP transport layer.
+
+The preferred dependency direction is:
+
+```text
+HTTP / Axum
+     ↓
+Application / Use Cases
+     ↓
+Domain
+     ↓
+Ports / Interfaces
+     ↓
+Infrastructure
+     ↓
+Database / External Systems
+```
+
+The domain and application layers should not depend unnecessarily on:
+
+```rust
+axum::Json
+axum::extract::Path
+axum::extract::Query
+axum::response::Response
+axum::http::StatusCode
+axum::Extension
+```
+
+HTTP-specific concepts should normally terminate at the transport boundary.
+
+Do not make domain functions return HTTP status codes.
+
+Do not pass Axum extractors through the application layer.
+
+Do not make database code aware of HTTP response semantics.
+
+---
+
+# 3. Handler Responsibilities
+
+Handlers should be thin.
+
+A handler should normally perform only:
+
+1. extract request data
+2. obtain request/application context
+3. invoke one application operation
+4. translate its result into an HTTP response
+
+Preferred shape:
+
+```rust
+async fn create_article(
+    State(state): State<AppState>,
+    AuthenticatedUser(user): AuthenticatedUser,
+    Json(request): Json<CreateArticleRequest>,
+) -> Result<(StatusCode, Json<ArticleResponse>), ApiError> {
+    let command = request.try_into()?;
+
+    let article = state
+        .articles
+        .create(user, command)
+        .await?;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(ArticleResponse::from(article)),
+    ))
+}
+```
+
+Avoid handlers containing:
+
+* SQL
+* large validation blocks
+* domain calculations
+* authorization policy implementations
+* multi-step business workflows
+* retry loops
+* serialization workarounds
+* infrastructure orchestration
+
+A handler exceeding a reasonable amount of transport logic should trigger an architectural review.
+
+Do not impose an arbitrary line limit, but large handlers are a design smell.
+
+---
+
+# 4. Request DTOs Are Not Domain Models
+
+Separate external API representations from domain types when their semantics differ.
+
+Prefer:
+
+```text
+CreateArticleRequest
+        ↓
+CreateArticleCommand
+        ↓
+Article
+        ↓
+ArticleResponse
+```
+
+rather than using one struct for:
+
+* request deserialization
+* business logic
+* database persistence
+* response serialization
+
+API DTOs exist for compatibility.
+
+Domain types exist for correctness.
+
+Persistence models exist for storage.
+
+Do not weaken the domain model because JSON input may be incomplete or invalid.
+
+---
+
+# 5. Validate at the Boundary
+
+Treat every request as untrusted.
+
+Validate:
+
+* path parameters
+* query parameters
+* headers
+* JSON payloads
+* multipart data
+* uploaded files
+* authentication data
+* pagination parameters
+* sorting fields
+* filter expressions
+
+as early as practical.
+
+Syntax validation belongs at or near the HTTP boundary.
+
+Domain validation belongs in domain/application types.
+
+Do not duplicate the same invariant independently in both layers without reason.
+
+Example:
+
+```text
+HTTP:
+"quantity" must be valid JSON integer
+
+Domain:
+Quantity must be > 0
+
+Database:
+quantity must satisfy globally required persistence constraints
+```
+
+Different layers may enforce the same invariant defensively when they protect different boundaries.
+
+---
+
+# 6. Use Axum Extractors Intentionally
+
+Use extractors to express request requirements declaratively.
+
+Prefer standard extractors where appropriate:
+
+```rust
+State<T>
+Path<T>
+Query<T>
+Json<T>
+HeaderMap
+Extension<T>
+```
+
+Create custom extractors for recurring request-level concepts such as:
+
+```text
+AuthenticatedUser
+TenantContext
+CorrelationId
+ValidatedJson<T>
+ClientVersion
+RequestContext
+```
+
+when this produces a clearer and more consistent boundary.
+
+Do not create custom extractors merely to hide ordinary application calls.
+
+An extractor should primarily extract or validate request context.
+
+It should not become a hidden business-service execution mechanism.
+
+---
+
+# 7. Extractor Ordering
+
+Respect Axum's body extraction model.
+
+Extractors that consume request parts should precede body-consuming extractors.
+
+Body-consuming extractors should normally appear last.
+
+Preferred:
+
+```rust
+async fn handler(
+    State(state): State<AppState>,
+    Path(id): Path<ArticleId>,
+    headers: HeaderMap,
+    Json(payload): Json<UpdateArticleRequest>,
+)
+```
+
+Do not create middleware or custom extractors that consume the body accidentally before downstream handlers require it.
+
+When middleware must inspect request bodies, explicitly account for:
+
+* buffering
+* body size
+* memory consumption
+* reconstruction
+* streaming semantics
+
+---
+
+# 8. Application State
+
+Use `State<T>` for application-wide state.
+
+Typical application state may contain:
+
+```rust
+#[derive(Clone)]
+pub struct AppState {
+    pub db: PgPool,
+    pub config: Arc<AppConfig>,
+    pub article_service: Arc<ArticleService>,
+}
+```
+
+State should primarily contain cheap-to-clone handles.
+
+Do not put request-specific data into global `State`.
+
+Do not put arbitrary mutable global data into `AppState`.
+
+Do not use:
+
+```rust
+Arc<Mutex<AppState>>
+```
+
+as the default state architecture.
+
+Prefer internally concurrency-safe resources such as:
+
+* connection pools
+* immutable configuration
+* clients designed for concurrent use
+* service handles
+
+Use fine-grained synchronization only where genuine mutable shared state exists.
+
+---
+
+# 9. Request-Specific Context
+
+Request-specific information should not be global state.
+
+Examples:
+
+```text
+authenticated user
+tenant
+authorization context
+request ID
+trace context
+locale
+client metadata
+```
+
+These values should normally flow through:
+
+* extractors
+* request extensions
+* explicit application parameters
+
+Prefer explicit context types where several related values travel together.
+
+Example:
+
+```rust
+pub struct RequestContext {
+    pub request_id: RequestId,
+    pub user: AuthenticatedUser,
+    pub tenant: TenantId,
+}
+```
+
+Do not hide critical authorization information in implicit globals.
+
+---
+
+# 10. Application State Must Not Become a Service Locator
+
+Avoid turning `AppState` into an unstructured container containing every repository, client, helper, configuration value, and utility.
+
+Prefer cohesive application services or explicit substates.
+
+Use `FromRef` or equivalent state decomposition when it improves modularity.
+
+The state tree should communicate architecture rather than bypass it.
+
+---
+
+# 11. Dependency Injection
+
+Prefer constructor injection.
+
+Dependencies should be visible in types.
+
+Do not introduce a generic dependency-injection framework unless the project genuinely requires one.
+
+Axum state plus explicit constructors is generally sufficient.
+
+---
+
+# 12. Error Architecture
+
+Separate errors by responsibility.
+
+A useful structure is:
+
+```text
+Infrastructure Error
+        ↓
+Application Error
+        ↓
+API Error
+        ↓
+HTTP Problem Response
+```
+
+Do not expose raw database, HTTP-client, parser, or internal error messages to API consumers.
+
+Do not map every internal failure directly to `500` inside individual handlers.
+
+Centralize HTTP error semantics.
+
+---
+
+# 13. RFC 9457 Problem Details
+
+Unless the API contract explicitly defines another standard, use RFC 9457 Problem Details for structured HTTP errors.
+
+Prefer:
+
+```http
+Content-Type: application/problem+json
+```
+
+with a stable representation such as:
+
+```json
+{
+  "type": "https://api.example.com/problems/article-not-found",
+  "title": "Article not found",
+  "status": 404,
+  "detail": "The requested article does not exist.",
+  "instance": "/api/articles/123",
+  "request_id": "..."
+}
+```
+
+Use stable machine-readable problem types.
+
+Do not require clients to parse `detail` or `title`.
+
+Human-readable text is not an API discriminator.
+
+Do not expose:
+
+* SQL errors
+* stack traces
+* filesystem paths
+* secrets
+* internal hostnames
+* implementation details
+
+through problem responses.
+
+---
+
+# 14. Error Mapping
+
+Map errors based on semantics rather than implementation source.
+
+Examples:
+
+```text
+malformed request             → 400
+authentication required       → 401
+authenticated but forbidden   → 403
+resource absent               → 404
+state/version conflict        → 409
+semantic validation failure   → 422 where appropriate
+rate limit exceeded           → 429
+unexpected internal failure   → 500
+dependency unavailable        → 502/503 as appropriate
+timeout                       → suitable timeout response
+```
+
+Do not return `500` for expected domain failures.
+
+Do not return `200` with an embedded error object.
+
+Do not use status codes merely because they are convenient.
+
+Preserve HTTP semantics.
+
+---
+
+# 15. `IntoResponse`
+
+Use `IntoResponse` for stable transport-level representations.
+
+A central `ApiError` may implement `IntoResponse`.
+
+Internal errors should be logged with useful diagnostic context.
+
+External responses should remain sanitized.
+
+Do not make every domain error implement `IntoResponse`.
+
+That would couple the domain layer to Axum.
+
+---
+
+# 16. Do Not Leak Error Internals
+
+Client response:
+
+```text
+Database operation failed.
+Request ID: 01ABC...
+```
+
+Internal trace:
+
+```text
+failed query
+constraint
+operation
+request_id
+user/tenant context where permitted
+source chain
+```
+
+The client and operator require different information.
+
+Design both intentionally.
+
+---
+
+# 17. Authentication
+
+Authentication should normally happen before application handlers execute.
+
+Use middleware or an extractor depending on semantics.
+
+Authentication should produce a typed identity rather than repeatedly passing raw bearer-token strings.
+
+Never trust claims merely because a token is syntactically valid.
+
+---
+
+# 18. Authorization
+
+Authentication and authorization are separate concerns.
+
+Do not assume:
+
+```text
+authenticated == authorized
+```
+
+Authorization should be expressed using domain/application concepts.
+
+Authorization must be enforced server-side regardless of frontend behavior.
+
+---
+
+# 19. Middleware
+
+Use middleware for genuine cross-cutting HTTP concerns.
+
+Suitable middleware includes:
+
+* tracing
+* request IDs
+* authentication
+* CORS
+* compression
+* timeout enforcement
+* request body limits
+* security headers
+* metrics
+* rate limiting
+* concurrency limiting
+
+Do not move ordinary business logic into middleware.
+
+Middleware introduces implicit control flow and should remain conceptually narrow.
+
+---
+
+# 20. Middleware Ordering Is Architecture
+
+Tower layers are order-sensitive.
+
+Treat middleware ordering as intentional application behavior.
+
+Do not reorder layers casually.
+
+When constructing a middleware stack, reason explicitly about:
+
+* which layer sees the request first
+* which layer sees the response last
+* where errors are converted
+* where authentication occurs
+* which operations are timed
+* which operations are traced
+* which requests consume concurrency capacity
+
+Use `ServiceBuilder` when it makes ordering clearer.
+
+Add comments where ordering is non-obvious and materially important.
+
+---
+
+# 21. Timeout Policy
+
+Every external request path should have an understood timeout model.
+
+Consider timeouts for:
+
+* complete HTTP requests
+* database queries
+* external HTTP calls
+* connection acquisition
+* body streaming
+* background jobs
+
+Do not rely solely on an upstream reverse proxy timeout.
+
+Timeouts should be intentional at the application boundary.
+
+---
+
+# 22. Timeout Is Not Cancellation Safety
+
+A timeout dropping a future does not automatically make the underlying operation semantically safe.
+
+Consider what happens if a request is cancelled while:
+
+* writing to a database
+* executing a multi-step workflow
+* calling an external service
+* publishing an event
+* updating multiple resources
+
+Operations crossing transactional boundaries must remain consistent under cancellation.
+
+Do not assume:
+
+```text
+future cancelled == work never happened
+```
+
+Design side effects accordingly.
+
+---
+
+# 23. Async Discipline
+
+Use async for work that benefits from asynchronous waiting.
+
+Do not convert CPU-bound work into `async fn` merely because it is called from an Axum handler.
+
+Async does not make CPU work non-blocking.
+
+---
+
+# 24. Blocking Work
+
+Do not execute substantial blocking work directly on Tokio executor threads.
+
+Use an appropriate mechanism such as:
+
+```rust
+tokio::task::spawn_blocking(...)
+```
+
+or a dedicated worker architecture.
+
+Do not wrap trivial CPU operations in `spawn_blocking`.
+
+---
+
+# 25. CPU-Bound Work
+
+For genuinely CPU-intensive workloads, consider whether a dedicated CPU worker pool or job system is more appropriate than Tokio's blocking pool.
+
+Do not allow unbounded request traffic to create unbounded CPU work.
+
+---
+
+# 26. Do Not Hold Locks Across `.await`
+
+Avoid holding synchronization guards across `.await`.
+
+Keep critical sections minimal.
+
+When access must remain serialized across async operations, reassess whether an actor/message-passing design is clearer.
+
+---
+
+# 27. Shared Mutable State
+
+Do not reach automatically for:
+
+```rust
+Arc<Mutex<T>>
+```
+
+or:
+
+```rust
+Arc<RwLock<T>>
+```
+
+for shared application state.
+
+First consider:
+
+* immutable state
+* connection pools
+* atomic values
+* channels
+* actors
+* database-backed state
+* ownership transfer
+
+Shared mutable in-memory state complicates scaling across multiple application instances.
+
+---
+
+# 28. Task Spawning
+
+Do not use `tokio::spawn` merely to make a handler appear faster.
+
+Every spawned task must have a deliberate lifecycle.
+
+Avoid fire-and-forget tasks for business-critical operations.
+
+If work must survive process termination, use durable job infrastructure rather than detached Tokio tasks.
+
+---
+
+# 29. Request Cancellation
+
+Assume clients can disconnect at any time.
+
+Handlers and downstream operations must tolerate request future cancellation.
+
+Do not rely on the HTTP request lifetime as a transaction coordinator.
+
+---
+
+# 30. Backpressure and Resource Protection
+
+Do not design only for normal load.
+
+Use bounded concurrency.
+
+Bound queues.
+
+Bound request bodies.
+
+Bound page sizes.
+
+Bound query complexity.
+
+Unbounded resources are production defects.
+
+---
+
+# 31. Concurrency Limits
+
+Apply concurrency controls at the resource actually being protected.
+
+A global concurrency limit is not automatically the correct solution.
+
+Choose limits based on measured service behavior.
+
+Do not invent arbitrary numbers without documenting the assumption.
+
+---
+
+# 32. Rate Limiting
+
+Rate limiting and concurrency limiting solve different problems.
+
+Rate limits control request frequency.
+
+Concurrency limits control simultaneous work.
+
+Use the correct mechanism.
+
+---
+
+# 33. Request Body Limits
+
+Every endpoint accepting a body should have an understood maximum acceptable size.
+
+Do not permit effectively unlimited request bodies.
+
+Limits should reflect endpoint semantics.
+
+Reject oversized bodies before buffering them extensively where possible.
+
+---
+
+# 34. Streaming
+
+Use streaming when payload characteristics justify it.
+
+Do not buffer large bodies into memory solely for implementation convenience.
+
+Do not introduce streaming complexity for small payloads.
+
+---
+
+# 35. JSON
+
+Treat JSON as an external contract.
+
+Use explicit request and response DTOs.
+
+Be deliberate about Serde behavior.
+
+Do not casually add:
+
+```rust
+#[serde(default)]
+```
+
+to hide missing required fields.
+
+Do not silently accept semantically invalid values.
+
+Do not serialize internal structs automatically merely because they derive `Serialize`.
+
+---
+
+# 36. API Compatibility
+
+Changes to request or response models are contract changes.
+
+Do not confuse Rust source compatibility with HTTP API compatibility.
+
+An apparently harmless Rust refactor can break external clients.
+
+---
+
+# 37. API Versioning
+
+Do not introduce API versions speculatively.
+
+When versioning is required, choose a consistent strategy.
+
+Prefer backward-compatible evolution where practical.
+
+Breaking versions should have an explicit migration path.
+
+---
+
+# 38. Path Design
+
+Model paths around resources and domain semantics.
+
+RPC-style operations are acceptable when the domain operation is genuinely an action and forcing it into CRUD would obscure semantics.
+
+Do not pursue REST purity at the expense of domain clarity.
+
+---
+
+# 39. HTTP Methods
+
+Respect method semantics.
+
+GET and HEAD must not cause business state changes.
+
+Consider idempotency semantics explicitly for PUT, DELETE, retries, and distributed clients.
+
+---
+
+# 40. Idempotency
+
+Any endpoint likely to be retried and capable of significant side effects should be evaluated for idempotency.
+
+Do not implement idempotency as a naive in-memory hash map for distributed production services.
+
+---
+
+# 41. Pagination
+
+Collection endpoints returning potentially large result sets must be bounded.
+
+Do not return unbounded tables.
+
+Set a maximum page size.
+
+Do not trust client-provided page-size limits without server enforcement.
+
+---
+
+# 42. Filtering and Sorting
+
+Do not map arbitrary client field names directly into SQL strings.
+
+Represent filtering and sorting through validated typed structures.
+
+The API layer defines allowed operations.
+
+The database layer implements them safely.
+
+---
+
+# 43. CORS
+
+CORS is a browser security policy, not authentication.
+
+Configure allowed origins, methods, and headers deliberately.
+
+Do not use permissive wildcard CORS in production merely to solve frontend integration problems.
+
+Keep environment-specific CORS configuration explicit.
+
+---
+
+# 44. Security Headers
+
+Apply security-related HTTP headers where relevant to the deployment.
+
+Do not assume Axum alone provides a complete HTTP security posture.
+
+---
+
+# 45. Proxy Awareness
+
+When running behind a reverse proxy, do not blindly trust forwarded headers.
+
+Headers such as:
+
+```text
+X-Forwarded-For
+X-Forwarded-Proto
+Forwarded
+```
+
+are trustworthy only when received through infrastructure that sanitizes and controls them.
+
+Document the trust boundary.
+
+---
+
+# 46. Database Connections
+
+Store a database pool handle in application state rather than one shared database connection.
+
+Acquire connections as late as reasonable.
+
+Release them as early as reasonable.
+
+Do not hold a database connection while performing unrelated external network calls.
+
+Do not hold a transaction across unrelated HTTP operations.
+
+---
+
+# 47. Transaction Boundaries
+
+Transactions belong around operations requiring database atomicity.
+
+Keep them short.
+
+Do not open a transaction at the start of a handler merely for convenience.
+
+External systems cannot normally participate in the same database transaction.
+
+---
+
+# 48. External HTTP Clients
+
+Reuse HTTP clients designed for connection pooling.
+
+Do not construct a new HTTP client per request unless required.
+
+Treat external services as unreliable.
+
+Do not retry all failures blindly.
+
+---
+
+# 49. Retries
+
+Retries must be bounded and semantically safe.
+
+Retry only errors that are plausibly transient.
+
+Never blindly retry non-idempotent operations.
+
+Do not multiply retries across layers unintentionally.
+
+Retry policy must have one clear owner.
+
+---
+
+# 50. Graceful Shutdown
+
+Production Axum services must support graceful shutdown.
+
+Shutdown should:
+
+1. stop accepting new work
+2. allow appropriate in-flight requests to finish
+3. stop background tasks cleanly
+4. flush telemetry where practical
+5. release resources
+
+Shutdown must have a bounded maximum duration.
+
+Do not wait indefinitely for broken connections or stuck tasks.
+
+Background tasks should receive or observe shutdown signaling.
+
+---
+
+# 51. Observability
+
+Observability is a first-class production requirement.
+
+Every service should emit useful:
+
+* logs
+* traces
+* metrics
+
+The default question should be:
+
+```text
+Can we diagnose this request in production?
+```
+
+If not, the telemetry design is incomplete.
+
+---
+
+# 52. Request IDs
+
+Every request should have a request identifier.
+
+Prefer a dedicated request-ID layer.
+
+If an upstream identifier exists, propagate it.
+
+If it does not exist, generate one.
+
+Return the identifier in the response.
+
+Include it in logs and traces.
+
+Do not invent a new request-ID convention per service.
+
+---
+
+# 53. Tracing
+
+Use structured tracing.
+
+A useful HTTP span typically includes:
+
+```text
+method
+path template
+status
+latency
+request_id
+route identity
+```
+
+Do not pollute traces with high-volume request bodies or secrets.
+
+Prefer `TraceLayer` plus application-level spans over ad-hoc timing logs.
+
+---
+
+# 54. Logging
+
+Prefer structured logs.
+
+Do not log request bodies by default.
+
+Do not log authorization headers.
+
+Do not log cookies.
+
+Do not log passwords, tokens, API keys, or personally identifying sensitive data unless explicitly authorized and required.
+
+Log at the level corresponding to the event.
+
+---
+
+# 55. Metrics
+
+Instrument at least:
+
+```text
+request count
+request latency
+error count
+in-flight requests
+```
+
+and, where relevant:
+
+```text
+queue depth
+retry count
+external call latency
+database pool utilization
+timeout count
+```
+
+Prefer labeled metrics, but do not explode cardinality.
+
+Do not use unbounded user IDs, request IDs, or raw URLs as metric labels.
+
+---
+
+# 56. Health Endpoints
+
+Separate liveness from readiness when the deployment model requires it.
+
+Liveness answers:
+
+```text
+Should this process be restarted?
+```
+
+Readiness answers:
+
+```text
+Should this process currently receive traffic?
+```
+
+A process can be alive but not ready.
+
+Do not make liveness depend on every downstream dependency by default.
+
+---
+
+# 57. OpenAPI
+
+The HTTP surface should be documented.
+
+If the project uses OpenAPI, keep it generated from the implementation or verified against it.
+
+Do not allow OpenAPI and code to drift silently.
+
+Do not treat undocumented endpoints as acceptable production API.
+
+---
+
+# 58. Testing Pyramid
+
+A production Axum service requires multiple test layers:
+
+1. unit tests for domain and application logic
+2. handler/unit tests for request mapping
+3. integration tests against real HTTP behavior
+4. selected end-to-end tests for critical flows
+
+Do not make HTTP tests the only proof of business correctness.
+
+---
+
+# 59. Handler Tests
+
+Handler tests should verify:
+
+* extractor behavior
+* request mapping
+* status codes
+* error mapping
+* headers
+* authentication/authorization boundaries
+* response shape
+
+They should not re-prove domain rules already covered at a lower layer.
+
+---
+
+# 60. Integration Tests
+
+Use Axum's test utilities and `oneshot`/test-client patterns where they provide value.
+
+Test real HTTP semantics:
+
+* routing
+* middleware
+* authentication
+* CORS
+* body limits
+* content types
+* error responses
+* shutdown behavior where practical
+
+---
+
+# 61. Database Tests
+
+If the API depends on a database, integration tests should use a realistic database environment.
+
+Do not use mocks as the only proof of query correctness.
+
+Prefer isolated schemas, transactions, or dedicated test databases depending on the project.
+
+---
+
+# 62. Time in Tests
+
+Do not depend on real clocks in tests when time is part of the contract.
+
+Inject time, freeze time, or use deterministic time sources.
+
+---
+
+# 63. Fixtures
+
+Test fixtures should be explicit.
+
+Do not share mutable global fixtures across tests if they create hidden coupling.
+
+---
+
+# 64. Router Construction
+
+Construct routers explicitly.
+
+A large application should compose routers by module rather than dumping every route into `main`.
+
+Example:
+
+```rust
+Router::new()
+    .merge(health_routes())
+    .nest("/api/v1/articles", article_routes())
+    .nest("/api/v1/users", user_routes())
+    .with_state(state)
+```
+
+`main` should assemble the application, not contain the entire HTTP surface.
+
+---
+
+# 65. Route Modules
+
+Organize routes by domain capability.
+
+Do not organize primarily around HTTP verbs or file-system convenience.
+
+A module should contain a coherent slice of API surface, not a random collection of handlers.
+
+---
+
+# 66. Feature Flags and Environment Configuration
+
+Load configuration once at startup.
+
+Fail fast on missing required configuration.
+
+Do not scatter `std::env::var` throughout handlers.
+
+Environment-specific behavior should be explicit.
+
+---
+
+# 67. Secrets
+
+Secrets belong in a secret manager or equivalent controlled environment, not in:
+
+* source code
+* committed `.env` files
+* logs
+* traces
+* error responses
+* OpenAPI examples that leak real credentials
+
+---
+
+# 68. File Uploads
+
+Treat file uploads as untrusted data.
+
+Validate:
+
+* size
+* content type
+* actual content when relevant
+* filename
+* destination path
+
+Never use client-provided filenames as filesystem paths without sanitization.
+
+Prefer streaming or bounded buffering.
+
+---
+
+# 69. Multipart
+
+Multipart parsing should have explicit size and count limits.
+
+Do not accept unbounded numbers of parts.
+
+Do not assume declared content types are truthful.
+
+---
+
+# 70. WebSockets
+
+WebSocket handlers require additional discipline.
+
+Consider:
+
+* authentication
+* authorization
+* idle timeouts
+* message size limits
+* backpressure
+* connection lifecycle
+* shutdown
+* fan-out cost
+* per-connection resource accounting
+
+Do not treat WebSockets as ordinary request/response handlers.
+
+---
+
+# 71. Server-Sent Events
+
+SSE streams must be bounded by connection policy.
+
+Do not allow disconnected clients to retain server resources indefinitely.
+
+Apply heartbeat, timeout, and cleanup policies.
+
+---
+
+# 72. Background Jobs vs Request Scope
+
+If work may exceed a reasonable HTTP request lifetime, it belongs in a job/worker system.
+
+Do not keep HTTP connections open merely because a long-running workflow has nowhere else to live.
+
+Request-scoped work and durable background work are different designs.
+
+---
+
+# 73. Eventual Consistency
+
+Do not hide eventual consistency behind a 200 response that implies immediate completeness unless that is actually true.
+
+If an API starts asynchronous work, the response should reflect that.
+
+---
+
+# 74. Caching
+
+HTTP caching must be explicit.
+
+Do not add `Cache-Control` headers casually.
+
+Consider:
+
+* private vs public
+* authenticated responses
+* ETags
+* last-modified semantics
+* cache invalidation
+
+Incorrect caching of authenticated or tenant-specific data is a security defect.
+
+---
+
+# 75. Compression
+
+Use compression only when it is beneficial.
+
+Do not compress already compressed payloads.
+
+Be cautious with compression of attacker-controlled input.
+
+---
+
+# 76. Content Types
+
+Respect content negotiation where the API supports it.
+
+Do not return JSON with a misleading content type.
+
+Error responses should use the intended problem-details content type when that contract is used.
+
+---
+
+# 77. Redirects
+
+Redirects are part of API semantics.
+
+Do not convert failed authorization into a redirect unless that is the actual contract.
+
+APIs and browser applications may require different redirect behavior.
+
+---
+
+# 78. Cookies
+
+Treat cookies as security-sensitive state.
+
+Set:
+
+* `HttpOnly`
+* `Secure`
+* `SameSite`
+
+according to actual requirements.
+
+Do not store sensitive application data in cookies if a safer alternative exists.
+
+---
+
+# 79. CSRF
+
+Cookie-authenticated browser APIs require CSRF protection.
+
+Bearer-token APIs have a different threat model.
+
+Do not copy CSRF advice blindly from one authentication model to another.
+
+---
+
+# 80. Multi-Tenancy
+
+Tenant isolation is a security invariant.
+
+Do not rely on frontend-supplied tenant IDs as the sole source of truth.
+
+Tenant identity should come from trusted authentication/session context.
+
+Every query accessing tenant-owned data must apply tenant scope.
+
+---
+
+# 81. Pagination Tokens and Cursors
+
+If using cursor pagination, treat cursors as untrusted input.
+
+Sign or otherwise protect opaque cursors if they encode internal state.
+
+Do not leak internal database offsets or implementation details unnecessarily.
+
+---
+
+# 82. Search Endpoints
+
+Search is not a generic SQL passthrough.
+
+Validate operators, fields, and result bounds.
+
+Prevent overly expensive queries.
+
+---
+
+# 83. Admin Endpoints
+
+Administrative endpoints must be separately protected.
+
+Do not expose internal operational APIs on the public router by accident.
+
+---
+
+# 84. Feature Modules vs God Router
+
+Avoid a single giant router file.
+
+Prefer composition.
+
+Avoid premature microservice extraction as a substitute for modular monolith design.
+
+---
+
+# 85. Error Conversion Must Be Exhaustive Enough
+
+Unhandled error variants should not silently become `500 Internal Server Error` unless that is genuinely the correct semantics.
+
+Review error mappings when domain errors change.
+
+---
+
+# 86. Fallbacks
+
+Fallback handlers should return a useful, consistent error representation.
+
+Do not return a framework-default HTML 404 from a JSON API.
+
+---
+
+# 87. Panic Handling
+
+A request panic should not crash the entire process unless no better isolation exists.
+
+Treat panics as defects.
+
+Do not use panics as control flow in handlers.
+
+---
+
+# 88. Resource Cleanup
+
+Temporary files, leases, locks, and similar resources created during a request must be cleaned up even if the request is cancelled.
+
+Use RAII, drop guards, or equivalent structured cleanup.
+
+---
+
+# 89. File Responses
+
+When serving files:
+
+* do not allow path traversal
+* set correct content types
+* consider content-disposition
+* consider range requests only if actually supported
+* do not expose internal filesystem layout
+
+---
+
+# 90. Binary Payloads
+
+Binary endpoints should define size, type, and encoding contracts explicitly.
+
+Do not treat arbitrary bytes as trusted input.
+
+---
+
+# 91. Schema Evolution
+
+Additive API changes are preferred.
+
+Removing or renaming fields is a breaking change unless a compatibility strategy exists.
+
+Do not reuse field names for different meanings.
+
+---
+
+# 92. Client Compatibility
+
+Design APIs for actual clients.
+
+If the API is consumed by browsers, mobile apps, and backend services, do not optimize only for one of them.
+
+---
+
+# 93. Documentation as Contract
+
+Comments, OpenAPI, README fragments, and code must not contradict each other.
+
+If behavior changes, update the contract artifacts in the same change.
+
+---
+
+# 94. Performance Work
+
+Do not micro-optimize handler code before measuring.
+
+Typical production bottlenecks are more often:
+
+* database queries
+* N+1 access
+* unbounded allocations
+* lock contention
+* excessive cloning of large payloads
+* missing indexes
+* chatty downstream calls
+
+than Axum extractor syntax.
+
+---
+
+# 95. Allocation Awareness
+
+Avoid cloning large request or response bodies unnecessarily.
+
+Avoid building giant in-memory collections when streaming or pagination would suffice.
+
+Do not prematurely introduce object pools.
+
+---
+
+# 96. Compile-Time vs Runtime Checks
+
+Prefer typed IDs, typed query structs, and typed path parameters where they prevent invalid requests from compiling or from reaching deeper layers.
+
+Do not overfit the type system to HTTP quirks if it obscures the domain.
+
+---
+
+# 97. Local Development vs Production
+
+Development convenience must not leak into production defaults.
+
+Examples:
+
+```text
+permissive CORS
+debug endpoints
+verbose error bodies
+disabled authentication
+unbounded body sizes
+```
+
+These must be explicit environment choices.
+
+---
+
+# 98. Code Review Checklist
+
+Before merging Axum/API changes, verify:
+
+* handlers remain thin
+* DTOs and domain types are separated where needed
+* validation happens at the correct boundary
+* error mapping is semantic and stable
+* no secrets leak through logs or responses
+* middleware order is intentional
+* request cancellation is considered
+* body and page sizes are bounded
+* tracing and request IDs exist
+* tests cover HTTP semantics and domain behavior
+* breaking API changes are explicit
+
+---
+
+# 99. What This Standard Is Not
+
+This standard does not require:
+
+* one particular folder layout
+* hexagonal architecture theater
+* microservice extraction
+* the most fashionable Axum extractor style
+* OpenAPI as the only valid documentation form
+* every endpoint to be perfectly RESTful
+* premature abstraction of every handler
+
+It does require that HTTP code remain a transport layer over a real application design.
+
+---
+
+# 100. Final Rule
+
+If a change makes the handler shorter but the system less clear, less safe, or harder to operate, reject it.
+
+Axum should make HTTP integration elegant.
+
+It should not become the architecture.
+
+Write Axum code as if:
+
+* every request is untrusted
+* every client can disconnect
+* every dependency can fail
+* every payload can be too large
+* every log can leak
+* every API change can break someone
+* every production incident must be diagnosable
+
+Then write the smallest clear design that still satisfies those constraints.
+
