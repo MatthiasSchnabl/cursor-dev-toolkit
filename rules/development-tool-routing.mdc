@@ -37,4 +37,6 @@ When creating, modifying, reviewing, or refactoring Rust, follow `rust-engineeri
 
 HTTP/API with Axum, Tokio, and Tower additionally follows `rust-axum-engineering-standard.mdc`. Handlers are transport adapters: extract, invoke one application operation, map the result. Domain types must not return HTTP status codes.
 
+Persistence with SQLx and PostgreSQL follows `rust-sqlx-engineering-standard.mdc`. SQL is architecture, not an implementation detail. Domain types must not depend on `PgPool` / `Transaction`.
+
 Project-specific rules in `AGENTS.md` take precedence over this global routing.

@@ -1,0 +1,3266 @@
+---
+description: Production-grade SQLx/PostgreSQL engineering standard — transactional safety, injection safety, explicit SQL
+globs: "**/*.rs,**/Cargo.toml,**/rust-toolchain.toml,**/.cargo/**,**/*.sql"
+alwaysApply: false
+---
+
+# Rust SQLx + PostgreSQL Engineering Standard
+
+These instructions are mandatory for database access implemented with Rust, SQLx, and PostgreSQL in this repository.
+
+This standard supplements:
+
+* the Rust Engineering Standard
+* the Rust Axum Engineering Standard
+
+The goal is database code that is:
+
+* correct
+* transactionally safe
+* type-safe
+* injection-safe
+* explicit
+* performant
+* observable
+* migration-safe
+* concurrency-safe
+* maintainable
+* understandable by humans and coding agents
+
+SQL is part of the application architecture.
+
+Do not treat SQL as an implementation detail that requires less engineering discipline than Rust code.
+
+---
+
+# 1. Priority Order
+
+When database engineering decisions conflict, use this order:
+
+1. Data correctness and integrity
+2. Transactional correctness
+3. Security
+4. Explicit domain/database semantics
+5. Concurrency correctness
+6. Maintainability
+7. Query predictability
+8. Resource efficiency
+9. Measured performance
+10. Convenience
+
+Never trade data integrity for implementation simplicity.
+
+Never introduce query complexity merely to save a trivial amount of Rust code.
+
+---
+
+# 2. SQLx Philosophy
+
+SQLx is a SQL toolkit, not an ORM abstraction layer.
+
+Use this deliberately.
+
+Prefer:
+
+```text
+explicit SQL
++
+typed Rust interfaces
++
+compile-time verification where possible
++
+PostgreSQL constraints
++
+measured query performance
+```
+
+Do not recreate a generic ORM on top of SQLx.
+
+Do not hide all SQL behind abstractions that make query behavior invisible.
+
+Database behavior must remain reviewable.
+
+---
+
+# 3. Architectural Boundary
+
+Database access belongs in infrastructure/persistence code.
+
+Preferred dependency direction:
+
+```text
+HTTP / Axum
+      ↓
+Application
+      ↓
+Domain
+      ↓
+Repository Port
+      ↓
+SQLx/PostgreSQL Adapter
+      ↓
+PostgreSQL
+```
+
+Domain code should not unnecessarily depend on:
+
+```rust
+sqlx::PgPool
+sqlx::PgConnection
+sqlx::Transaction
+sqlx::postgres::PgRow
+```
+
+SQLx types should normally terminate at the persistence boundary.
+
+---
+
+# 4. Repository Responsibility
+
+Repositories should represent meaningful persistence capabilities.
+
+Prefer:
+
+```rust
+ArticleRepository
+UserRepository
+ProjectRepository
+```
+
+over generic abstractions such as:
+
+```rust
+GenericRepository<T>
+CrudRepository<T>
+DatabaseManager
+SqlHelper
+```
+
+unless there is a concrete and stable shared abstraction.
+
+Domain-specific persistence APIs are preferable to generic CRUD interfaces when domain semantics differ.
+
+---
+
+# 5. Do Not Leak Database Models Into the Domain
+
+Separate database row representations from domain models when their semantics differ.
+
+Preferred:
+
+```text
+PostgresArticleRow
+        ↓
+Article
+```
+
+or:
+
+```text
+ArticleRecord
+        ↓
+Article
+```
+
+The persistence representation exists for database mapping.
+
+The domain representation exists for domain correctness.
+
+Do not derive SQLx traits on core domain types merely because doing so is convenient if it creates unwanted persistence coupling.
+
+---
+
+# 6. Prefer Compile-Time Checked Queries
+
+For static SQL, prefer SQLx compile-time checked macros where practical:
+
+```rust
+sqlx::query!()
+sqlx::query_as!()
+sqlx::query_scalar!()
+```
+
+Prefer compile-time verification especially for:
+
+* fixed SELECT statements
+* INSERT statements
+* UPDATE statements
+* DELETE statements
+* stable joins
+* repository queries
+* important persistence operations
+
+Compile-time checked queries can catch:
+
+* invalid SQL
+* missing columns
+* incompatible input types
+* incompatible output types
+* schema/query drift
+
+before runtime.
+
+---
+
+# 7. `query_as!` for Named Result Types
+
+For non-trivial query results, prefer explicit named structs.
+
+Example:
+
+```rust
+struct ArticleRecord {
+    id: Uuid,
+    article_number: String,
+    description: Option<String>,
+}
+```
+
+then:
+
+```rust
+sqlx::query_as!(
+    ArticleRecord,
+    r#"
+    SELECT
+        id,
+        article_number,
+        description
+    FROM article
+    WHERE id = $1
+    "#,
+    id
+)
+```
+
+Named result types improve:
+
+* readability
+* reviewability
+* refactoring
+* testability
+* agent comprehension
+
+Avoid large anonymous query result structures when they cross meaningful boundaries.
+
+---
+
+# 8. Avoid Unchecked Queries
+
+Do not use:
+
+```rust
+query_unchecked!()
+query_as_unchecked!()
+```
+
+merely to make compilation succeed.
+
+Unchecked macros remove important type guarantees.
+
+Use them only when SQLx cannot correctly infer a valid database construct and the discrepancy is understood and documented.
+
+A comment must explain why compile-time type checking cannot be used.
+
+---
+
+# 9. SQLx Offline Mode
+
+Projects using SQLx compile-time checked queries should support reproducible builds without requiring CI to access a development database.
+
+Maintain SQLx query metadata in:
+
+```text
+.sqlx/
+```
+
+where the project uses offline query verification.
+
+After modifying:
+
+* queries
+* database schema
+* query result types
+* relevant migrations
+
+regenerate SQLx metadata as required.
+
+---
+
+# 10. CI Must Detect SQLx Metadata Drift
+
+Where SQLx offline mode is adopted, CI should verify metadata consistency.
+
+Use the project's appropriate equivalent of:
+
+```bash
+cargo sqlx prepare --check
+```
+
+A query change that requires updated SQLx metadata is not complete until metadata has been regenerated and committed.
+
+Do not allow CI and local compilation to silently validate against different schemas.
+
+---
+
+# 11. Development Schema Must Match Migrations
+
+The database used for SQLx compile-time verification must represent the schema produced by the repository's migrations.
+
+Do not compile queries against an ad-hoc developer database that contains undocumented schema changes.
+
+Schema state must be reproducible from version-controlled migrations.
+
+---
+
+# 12. Static SQL vs Dynamic SQL
+
+Use static SQL whenever the query structure is known at compile time.
+
+Use dynamic SQL only when the SQL structure itself genuinely varies, such as:
+
+* optional filters
+* dynamic sorting
+* dynamic projection
+* advanced search
+* capability-driven field selection
+
+Do not use dynamic query building merely because it feels more flexible.
+
+Static SQL provides stronger verification and is easier to review.
+
+---
+
+# 13. Dynamic SQL With `QueryBuilder`
+
+When dynamic SQL is genuinely required, prefer SQLx's structured query-building facilities.
+
+Use:
+
+```rust
+QueryBuilder<Postgres>
+```
+
+and bind values through:
+
+```rust
+.push_bind(...)
+```
+
+Do not interpolate user-controlled values directly into SQL.
+
+---
+
+# 14. Never Concatenate User Input Into SQL
+
+Never write:
+
+```rust
+let sql = format!(
+    "SELECT * FROM article WHERE name = '{}'",
+    user_input
+);
+```
+
+This is prohibited.
+
+Parameters must use bind parameters.
+
+For dynamic query values:
+
+```rust
+builder.push_bind(value);
+```
+
+not:
+
+```rust
+builder.push(value);
+```
+
+if the value originates from an untrusted or variable source.
+
+---
+
+# 15. Dynamic Identifiers Are Different From Values
+
+SQL bind parameters represent values.
+
+They cannot safely replace arbitrary identifiers such as:
+
+```text
+column names
+table names
+ORDER BY expressions
+operators
+SQL keywords
+```
+
+When identifiers are dynamic, map them from trusted enums.
+
+Example:
+
+```rust
+enum ArticleSort {
+    ArticleNumber,
+    CreatedAt,
+    Price,
+}
+```
+
+then explicitly map:
+
+```rust
+match sort {
+    ArticleSort::ArticleNumber => builder.push(" article_number "),
+    ArticleSort::CreatedAt => builder.push(" created_at "),
+    ArticleSort::Price => builder.push(" price "),
+}
+```
+
+Never insert arbitrary client-provided identifier strings into SQL.
+
+---
+
+# 16. Filtering Should Be Typed
+
+For complex filtering, parse external input into a validated internal representation.
+
+Prefer:
+
+```text
+HTTP Filter
+    ↓
+Validated Filter AST
+    ↓
+SQL Builder
+```
+
+Example concepts:
+
+```rust
+enum FilterExpr {
+    Eq(Field, Value),
+    In(Field, Vec<Value>),
+    And(Vec<FilterExpr>),
+    Or(Vec<FilterExpr>),
+}
+```
+
+Do not allow raw SQL fragments to enter through API contracts.
+
+---
+
+# 17. Explicit Column Lists
+
+Prefer explicit column lists.
+
+Preferred:
+
+```sql
+SELECT
+    id,
+    article_number,
+    description,
+    created_at
+FROM article
+```
+
+Avoid:
+
+```sql
+SELECT *
+FROM article
+```
+
+particularly in application-facing queries.
+
+Explicit columns provide:
+
+* contract visibility
+* reduced data transfer
+* reduced accidental coupling
+* safer schema evolution
+* easier query review
+
+---
+
+# 18. Fetch Only Required Data
+
+Do not retrieve complete database rows when only a subset is required.
+
+Bad:
+
+```sql
+SELECT *
+FROM article
+```
+
+when the application needs only:
+
+```text
+id
+article_number
+```
+
+Database efficiency includes:
+
+* I/O
+* memory
+* serialization
+* network transfer
+* Rust allocation
+
+not only SQL execution time.
+
+---
+
+# 19. Choose Fetch Semantics Deliberately
+
+Use the SQLx method that matches expected cardinality.
+
+Conceptually:
+
+```text
+fetch_one     exactly one expected
+fetch_optional zero or one expected
+fetch_all     bounded collection expected
+fetch         streaming rows
+execute       no result rows required
+```
+
+Do not use `fetch_all()` automatically.
+
+Large result sets should normally be:
+
+* paginated
+* streamed
+* aggregated
+* bounded
+
+---
+
+# 20. Missing Rows Are Not Exceptional Infrastructure Failures
+
+Use appropriate cardinality APIs when absence is expected.
+
+Prefer:
+
+```rust
+.fetch_optional(...)
+```
+
+for resources that may legitimately not exist.
+
+Convert:
+
+```rust
+Option<Record>
+```
+
+into domain/application semantics deliberately.
+
+Do not use failed `fetch_one()` calls as routine not-found control flow when absence is expected.
+
+---
+
+# 21. Do Not Materialize Large Result Sets Needlessly
+
+Avoid:
+
+```rust
+fetch_all()
+```
+
+for potentially large tables.
+
+For large exports or batch processing, consider:
+
+```rust
+fetch(...)
+```
+
+and process rows incrementally when appropriate.
+
+Avoid loading tens or hundreds of thousands of rows into memory merely for convenience.
+
+---
+
+# 22. Map Database Types Intentionally
+
+Choose PostgreSQL types based on domain semantics.
+
+Do not automatically use:
+
+```text
+TEXT for everything
+BIGINT for everything
+JSONB for everything
+```
+
+Database types encode constraints and influence:
+
+* correctness
+* storage
+* indexing
+* query planning
+* interoperability
+
+---
+
+# 23. IDs
+
+Use stable database identity types appropriate to the domain.
+
+Examples may include:
+
+```text
+UUID
+BIGINT identity
+domain-specific natural identifiers
+```
+
+Do not expose arbitrary database surrogate IDs as domain identifiers unless that is intentional.
+
+Use Rust newtypes where different IDs must not be confused.
+
+Example:
+
+```rust
+struct ArticleId(Uuid);
+struct UserId(Uuid);
+```
+
+---
+
+# 24. PostgreSQL Enum vs Rust Enum
+
+Use PostgreSQL enums only when their lifecycle and migration characteristics fit the domain.
+
+Do not automatically create a PostgreSQL enum for every Rust enum.
+
+Consider:
+
+* frequency of new variants
+* backwards compatibility
+* migration deployment order
+* external database consumers
+
+A constrained text/code column may sometimes offer more flexible schema evolution.
+
+If PostgreSQL enums are used, map them explicitly and test schema compatibility.
+
+---
+
+# 25. Money and Decimal Values
+
+Do not represent exact financial values using binary floating-point types such as:
+
+```rust
+f32
+f64
+```
+
+Use an exact decimal representation.
+
+Typically:
+
+```text
+PostgreSQL NUMERIC
++
+appropriate Rust decimal type
+```
+
+where exact decimal semantics are required.
+
+Precision and scale must reflect business requirements.
+
+---
+
+# 26. Timestamps
+
+Choose timestamp semantics explicitly.
+
+For timestamps representing real moments in time, prefer PostgreSQL timezone-aware semantics:
+
+```text
+TIMESTAMPTZ
+```
+
+and a corresponding Rust type.
+
+Define timezone expectations explicitly.
+
+Do not rely on server-local timezone assumptions.
+
+For purely local calendar values, different semantics may be appropriate.
+
+---
+
+# 27. NULL Semantics
+
+Map SQL nullability deliberately.
+
+Nullable columns should normally map to:
+
+```rust
+Option<T>
+```
+
+Do not use sentinel values such as:
+
+```text
+0
+""
+1970-01-01
+UNKNOWN
+```
+
+to represent absence unless they have actual domain meaning.
+
+Conversely, do not make database columns nullable without a semantic reason.
+
+---
+
+# 28. Prefer `NOT NULL`
+
+Columns that are logically mandatory should generally be:
+
+```sql
+NOT NULL
+```
+
+Do not rely solely on Rust validation to enforce database invariants.
+
+Database constraints protect data from:
+
+* application bugs
+* migrations
+* scripts
+* integrations
+* concurrent processes
+* future applications
+
+---
+
+# 29. Database Constraints Are Part of the Domain Safety Model
+
+Use PostgreSQL constraints where they enforce universal persistence invariants.
+
+Examples:
+
+```text
+PRIMARY KEY
+FOREIGN KEY
+UNIQUE
+NOT NULL
+CHECK
+EXCLUDE
+```
+
+Application validation does not replace appropriate database constraints.
+
+Use both when they protect different boundaries.
+
+---
+
+# 30. Unique Constraints
+
+Business uniqueness requirements that must hold globally belong in the database.
+
+Example:
+
+```sql
+UNIQUE (article_number)
+```
+
+Do not implement uniqueness as:
+
+```text
+SELECT whether value exists
+→ if absent INSERT
+```
+
+without a database uniqueness constraint.
+
+That pattern is race-prone.
+
+Let PostgreSQL enforce the invariant.
+
+---
+
+# 31. Check Constraints
+
+Use `CHECK` constraints for simple row-local invariants when appropriate.
+
+Example:
+
+```sql
+CHECK (quantity >= 0)
+```
+
+Do not duplicate complex business workflows inside database checks.
+
+The database should enforce storage invariants.
+
+The application should enforce higher-level business behavior.
+
+---
+
+# 32. Foreign Keys
+
+Use foreign keys when referential integrity is part of the data model.
+
+Do not avoid foreign keys merely because application code also validates relationships.
+
+Choose deletion/update behavior intentionally:
+
+```text
+RESTRICT
+NO ACTION
+CASCADE
+SET NULL
+```
+
+Do not add `CASCADE` merely for convenience.
+
+Deletion semantics are business semantics.
+
+---
+
+# 33. Index Foreign-Key Access Paths When Needed
+
+PostgreSQL does not automatically create an index on every referencing foreign-key column.
+
+Evaluate indexes on foreign-key columns where queries, updates, or deletes rely on them.
+
+Do not assume the foreign-key declaration alone provides an appropriate index.
+
+---
+
+# 34. JSONB
+
+Use JSONB when the data is genuinely:
+
+* semi-structured
+* schema-flexible
+* sparse
+* extension-oriented
+
+Do not use JSONB as an escape hatch from relational modelling.
+
+Frequently queried, constrained, joined, or business-critical attributes usually deserve explicit columns or relational structures.
+
+---
+
+# 35. JSONB Contracts
+
+When storing structured JSONB, define its expected schema at application boundaries.
+
+Do not treat arbitrary JSON as trusted domain data.
+
+Consider:
+
+* versioning
+* required fields
+* migration strategy
+* indexing
+* compatibility
+
+JSONB removes relational rigidity but does not remove schema responsibility.
+
+---
+
+# 36. Arrays
+
+PostgreSQL arrays can be effective for specific use cases.
+
+Do not use arrays to hide relationships that should be normalized.
+
+Evaluate:
+
+* query semantics
+* update patterns
+* indexing
+* cardinality
+* integrity
+
+before choosing arrays over related tables.
+
+---
+
+# 37. Connection Pool
+
+Use a shared `PgPool`.
+
+A SQLx pool is designed to be shared.
+
+Clone the pool handle rather than creating independent pools throughout the application.
+
+Do not create a new pool per:
+
+* request
+* handler
+* repository invocation
+* transaction
+
+---
+
+# 38. Pool Size Must Be Engineered
+
+Do not set:
+
+```rust
+max_connections(100)
+```
+
+merely because a larger number seems safer.
+
+Pool sizing must consider:
+
+```text
+PostgreSQL max connections
+÷
+number of application instances
+−
+administration capacity
+−
+other applications
+```
+
+More database connections do not automatically improve throughput.
+
+Too many connections can degrade PostgreSQL performance.
+
+---
+
+# 39. Pool Capacity Is a Global Budget
+
+When horizontal scaling is used, calculate total potential connections.
+
+Example:
+
+```text
+10 application instances
+×
+20 connections per instance
+=
+200 potential DB connections
+```
+
+Pool configuration must account for the deployment architecture, not just one process.
+
+---
+
+# 40. Acquire Timeout
+
+Configure a finite pool acquisition timeout.
+
+An exhausted pool should not cause requests to wait indefinitely.
+
+Pool acquisition timeout is part of overload handling.
+
+Monitor pool exhaustion as an operational signal.
+
+---
+
+# 41. Minimum Connections
+
+Do not set a large `min_connections` without a reason.
+
+Maintaining idle connections consumes PostgreSQL resources.
+
+Use minimum connection settings according to:
+
+* startup behavior
+* latency requirements
+* database capacity
+* deployment scale
+
+not habit.
+
+---
+
+# 42. Connection Lifetime and Idle Lifetime
+
+Configure connection lifetime/idle behavior intentionally where operational requirements justify it.
+
+Consider:
+
+* proxies
+* load balancers
+* managed database behavior
+* stale network state
+* database failover
+* prepared statement behavior
+
+Do not aggressively recycle healthy connections without reason.
+
+---
+
+# 43. Connection Setup
+
+Use connection initialization hooks where session-level configuration is required.
+
+Examples may include:
+
+```text
+application_name
+statement_timeout
+lock_timeout
+search_path
+timezone
+```
+
+Keep session configuration explicit and deterministic.
+
+Do not rely on developer-specific PostgreSQL defaults.
+
+---
+
+# 44. Prefer Explicit Schema Resolution
+
+Where multiple PostgreSQL schemas exist or `search_path` creates ambiguity, prefer explicit schema handling.
+
+Do not allow security-sensitive object resolution to depend accidentally on uncontrolled `search_path` values.
+
+---
+
+# 45. Do Not Hold Connections Longer Than Necessary
+
+Acquire connections as late as practical.
+
+Release them as soon as practical.
+
+Do not acquire a connection at the start of an HTTP handler when several non-database operations happen first.
+
+Pool connections are limited shared resources.
+
+---
+
+# 46. No External Network Calls While Holding Connections Without Need
+
+Avoid:
+
+```text
+acquire DB connection
+→ query
+→ call external API
+→ wait
+→ query
+→ release connection
+```
+
+when the connection is not required during the external call.
+
+Release limited DB resources before unrelated I/O.
+
+---
+
+# 47. Transactions Are Semantic Boundaries
+
+Use transactions when several database operations must succeed or fail atomically.
+
+Do not use transactions mechanically around every repository method.
+
+Conversely, do not split an atomic business operation merely because several repository methods are involved.
+
+Transaction boundaries should follow consistency requirements.
+
+---
+
+# 48. Keep Transactions Short
+
+A transaction should contain only the database operations required for atomicity.
+
+Avoid:
+
+```text
+BEGIN
+→ query
+→ HTTP call
+→ expensive computation
+→ wait
+→ another service
+→ query
+→ COMMIT
+```
+
+Long transactions:
+
+* retain locks
+* retain snapshots
+* consume connections
+* increase contention
+* increase deadlock risk
+* impede vacuum behavior
+
+---
+
+# 49. Commit Explicitly
+
+Successful transaction flows should explicitly call:
+
+```rust
+tx.commit().await?;
+```
+
+SQLx rolls back an incomplete transaction when it is dropped, but this should be treated as a safety mechanism rather than the normal success path.
+
+Where rollback has meaningful error handling or observability requirements, perform it explicitly.
+
+---
+
+# 50. Transaction Ownership
+
+The application layer should define transaction scope when a use case spans multiple persistence operations.
+
+Avoid repository APIs that each independently begin and commit transactions when the full use case must be atomic.
+
+One business transaction may require several repository operations under one database transaction.
+
+---
+
+# 51. Executor-Oriented Repository Methods
+
+When architecture requires repository operations to run both:
+
+* directly against a pool/connection
+* inside an existing transaction
+
+design repository persistence APIs accordingly.
+
+Do not force nested independent transactions merely because repository functions accept only `PgPool`.
+
+Choose a consistent project pattern for passing transaction-capable executors.
+
+Avoid over-generalizing the API with complex generic executor bounds if a simpler explicit design is sufficient.
+
+---
+
+# 52. Savepoints
+
+Use savepoints only when partial rollback inside a larger transaction has meaningful semantics.
+
+Do not use savepoints merely to suppress errors.
+
+Nested transactional behavior must remain understandable.
+
+---
+
+# 53. Isolation Level
+
+Do not change transaction isolation levels without understanding the anomaly being prevented.
+
+PostgreSQL's ordinary default is typically:
+
+```text
+READ COMMITTED
+```
+
+Use stronger isolation only when required by application semantics.
+
+Possible levels include:
+
+```text
+READ COMMITTED
+REPEATABLE READ
+SERIALIZABLE
+```
+
+Higher isolation is not simply "better."
+
+It changes concurrency behavior and may require transaction retries.
+
+---
+
+# 54. Understand Read Committed
+
+Under `READ COMMITTED`, separate statements within one transaction can observe different committed database states.
+
+Do not assume:
+
+```text
+SELECT A
+...
+SELECT A again
+```
+
+must return the same data inside one transaction.
+
+If the application requires a stable snapshot, design accordingly.
+
+---
+
+# 55. Serializable Requires Retry Logic
+
+When using PostgreSQL `SERIALIZABLE`, the application must be prepared for serialization failures.
+
+A serialization failure is not necessarily an application defect.
+
+The transaction may need to be retried.
+
+Retry:
+
+* the complete transaction
+* from a safe boundary
+* with bounded attempts
+
+Do not retry only the final SQL statement if the transaction's earlier reads influenced the write.
+
+---
+
+# 56. Deadlocks Are Possible
+
+Deadlocks can occur even with correct application logic.
+
+Design to minimize them.
+
+When multiple rows/resources must be locked or updated, use a consistent ordering.
+
+Example:
+
+```text
+always update Account A before Account B according to stable ID ordering
+```
+
+Do not allow equivalent workflows to lock the same resources in inconsistent orders.
+
+---
+
+# 57. Deadlock Recovery
+
+PostgreSQL detects deadlocks and aborts one transaction.
+
+Applications with expected concurrent contention should handle appropriate deadlock failures explicitly.
+
+Retries must be:
+
+* bounded
+* observable
+* applied at the correct transaction boundary
+* safe for external side effects
+
+Do not blindly retry all database errors.
+
+---
+
+# 58. Lock Only When Required
+
+Do not introduce explicit locks preemptively.
+
+MVCC already handles significant concurrency.
+
+Use explicit locking when application semantics require it.
+
+Examples:
+
+```sql
+SELECT ... FOR UPDATE
+SELECT ... FOR NO KEY UPDATE
+```
+
+may be appropriate when subsequent operations depend on exclusive row-level state.
+
+---
+
+# 59. Choose the Weakest Correct Lock
+
+Do not automatically use:
+
+```sql
+FOR UPDATE
+```
+
+for all concurrency problems.
+
+PostgreSQL provides different row-level lock modes.
+
+Choose the weakest lock that preserves correctness.
+
+Stronger-than-required locks reduce concurrency.
+
+---
+
+# 60. Lock Rows in Stable Order
+
+When locking multiple rows, establish deterministic ordering.
+
+Example:
+
+```sql
+ORDER BY id
+FOR UPDATE
+```
+
+where appropriate to the use case.
+
+Stable lock ordering reduces deadlock probability.
+
+---
+
+# 61. Optimistic Concurrency
+
+For user-edited or concurrently modified resources, consider optimistic concurrency.
+
+Example:
+
+```text
+version BIGINT
+```
+
+Then update:
+
+```sql
+UPDATE article
+SET
+    description = $1,
+    version = version + 1
+WHERE id = $2
+  AND version = $3
+```
+
+Verify affected-row count.
+
+Zero affected rows may indicate:
+
+* resource absence
+* version conflict
+
+Distinguish these semantics where required.
+
+---
+
+# 62. Do Not Implement Read-Then-Write Races
+
+Avoid:
+
+```text
+SELECT value
+→ calculate
+→ UPDATE
+```
+
+when the entire operation can safely be expressed atomically.
+
+Prefer database-side atomic modifications where appropriate.
+
+Example:
+
+```sql
+UPDATE counter
+SET value = value + 1
+WHERE id = $1
+RETURNING value;
+```
+
+This often improves correctness and concurrency.
+
+---
+
+# 63. Use `RETURNING`
+
+PostgreSQL `RETURNING` is useful when modification and retrieval belong together.
+
+Prefer:
+
+```sql
+INSERT ...
+RETURNING ...
+```
+
+over:
+
+```text
+INSERT
+→ second SELECT
+```
+
+when the result can be returned directly.
+
+Similarly for:
+
+```sql
+UPDATE ... RETURNING
+DELETE ... RETURNING
+```
+
+This can reduce:
+
+* round trips
+* race windows
+* query complexity
+
+---
+
+# 64. Upserts
+
+Use PostgreSQL upsert semantics deliberately:
+
+```sql
+INSERT ...
+ON CONFLICT ...
+```
+
+when they accurately represent business behavior.
+
+Do not use `ON CONFLICT DO NOTHING` merely to hide duplicate-data problems.
+
+Conflict targets and resulting semantics must be explicit.
+
+---
+
+# 65. Affected Row Counts Matter
+
+For mutations, inspect affected-row counts when they carry semantic information.
+
+Examples:
+
+```text
+0 updated rows
+1 updated row
+unexpectedly many updated rows
+```
+
+may represent materially different outcomes.
+
+Do not discard `PgQueryResult::rows_affected()` where correctness depends on expected cardinality.
+
+---
+
+# 66. Avoid N+1 Queries
+
+Review persistence flows for N+1 patterns.
+
+Bad:
+
+```text
+SELECT 100 articles
+for each article:
+    SELECT price
+```
+
+Prefer:
+
+* joins
+* batched queries
+* arrays
+* set-based SQL
+* suitable prefetching
+
+depending on the domain.
+
+Do not solve N+1 by simply increasing pool size.
+
+---
+
+# 67. Think in Sets
+
+PostgreSQL is optimized for set-based operations.
+
+Prefer one meaningful SQL operation over thousands of tiny round trips when practical.
+
+Use:
+
+```text
+JOIN
+CTE
+UNNEST
+VALUES
+array parameters
+bulk operations
+```
+
+appropriately.
+
+Do not mechanically translate procedural Rust loops into repeated SQL calls.
+
+---
+
+# 68. Bulk Insert
+
+For bulk inserts, choose strategy based on expected volume.
+
+Possible strategies include:
+
+```text
+multi-row INSERT
+QueryBuilder::push_values
+arrays + UNNEST
+COPY
+```
+
+For large PostgreSQL bulk workloads, evaluate `UNNEST` or `COPY` rather than constructing extremely large `VALUES` lists.
+
+Do not assume one mechanism is best for every volume.
+
+---
+
+# 69. Bind Parameter Limits
+
+Dynamic/bulk queries must account for PostgreSQL/driver parameter limits.
+
+Do not construct arbitrarily large bind lists.
+
+Batch work when necessary.
+
+The batching strategy must be deterministic and tested for boundary sizes.
+
+---
+
+# 70. COPY for Large Data Movement
+
+For very large import/export workloads, evaluate PostgreSQL `COPY` capabilities rather than thousands of individual statements.
+
+Do not introduce `COPY` complexity for ordinary small CRUD operations.
+
+Use it where measured volume justifies it.
+
+---
+
+# 71. Round Trips Are Expensive
+
+Database performance is not only execution-plan cost.
+
+Each query also introduces:
+
+* client/server protocol work
+* scheduling
+* network latency
+* connection usage
+* decoding
+
+Reducing unnecessary round trips can be more valuable than micro-optimizing Rust code.
+
+---
+
+# 72. Indexes Must Follow Workloads
+
+Do not add indexes merely because columns exist.
+
+Indexes should support actual:
+
+```text
+WHERE
+JOIN
+ORDER BY
+uniqueness
+lookup
+```
+
+patterns.
+
+Every index has costs:
+
+* storage
+* insert overhead
+* update overhead
+* delete overhead
+* vacuum overhead
+* maintenance
+
+---
+
+# 73. Composite Index Order Matters
+
+For multicolumn B-tree indexes, column order matters.
+
+Design indexes around actual query predicates and ordering.
+
+Do not assume:
+
+```sql
+INDEX (a, b)
+```
+
+is equivalent to:
+
+```sql
+INDEX (b, a)
+```
+
+Evaluate representative queries.
+
+---
+
+# 74. Avoid Index Explosion
+
+Do not add an index for every possible filter combination.
+
+For systems with dynamic filtering, evaluate actual workload frequency and selectivity.
+
+Too many indexes can degrade write performance and operational maintenance.
+
+Index decisions should be evidence-based.
+
+---
+
+# 75. Partial Indexes
+
+Use partial indexes when a frequently queried subset of rows has stable semantics.
+
+Example conceptually:
+
+```sql
+CREATE INDEX ...
+ON job (...)
+WHERE status = 'pending';
+```
+
+Do not use partial indexes unless query predicates reliably align with the index predicate.
+
+---
+
+# 76. Covering Indexes
+
+Use included columns / covering-index strategies only where measured query patterns justify them.
+
+Do not enlarge indexes unnecessarily to achieve theoretical index-only scans.
+
+Consider:
+
+* index size
+* write amplification
+* cache pressure
+* actual query frequency
+
+---
+
+# 77. Specialized Indexes
+
+Choose PostgreSQL index types based on operators and workloads.
+
+Examples may include:
+
+```text
+B-tree
+GIN
+GiST
+BRIN
+```
+
+Do not choose specialized indexes without understanding:
+
+* supported operators
+* cardinality
+* table size
+* data distribution
+* maintenance cost
+
+---
+
+# 78. Search Requirements Need Search-Specific Design
+
+Do not expect:
+
+```sql
+ILIKE '%term%'
+```
+
+over large tables to remain scalable automatically.
+
+For substantial text/search workloads evaluate appropriate PostgreSQL capabilities such as:
+
+* full-text search
+* trigram indexing
+* suitable extensions
+
+based on requirements.
+
+Do not add search extensions speculatively.
+
+---
+
+# 79. Pagination
+
+Large table queries must be bounded.
+
+Do not return an unbounded result set.
+
+Offset pagination can be suitable for:
+
+* relatively small data sets
+* random page access
+* administrative views
+
+Keyset/cursor pagination should be considered for:
+
+* very large sets
+* deep pagination
+* stable sequential traversal
+
+Pagination strategy is part of query design.
+
+---
+
+# 80. Large OFFSET Costs
+
+Do not assume:
+
+```sql
+OFFSET 500000
+LIMIT 50
+```
+
+is cheap because only 50 rows are returned.
+
+For large offsets, PostgreSQL may still need to process many preceding rows.
+
+Measure deep-pagination workloads.
+
+---
+
+# 81. Stable Ordering
+
+Paginated queries require deterministic ordering.
+
+Do not paginate using a non-unique ordering alone.
+
+Example:
+
+```sql
+ORDER BY created_at, id
+```
+
+may be preferable to:
+
+```sql
+ORDER BY created_at
+```
+
+if multiple rows can share the same timestamp.
+
+Cursor pagination particularly requires stable ordering semantics.
+
+---
+
+# 82. Query Plans Must Be Measured
+
+For important or slow queries, inspect PostgreSQL execution plans.
+
+Use:
+
+```sql
+EXPLAIN
+```
+
+and where safe:
+
+```sql
+EXPLAIN ANALYZE
+```
+
+Do not diagnose query performance solely from SQL appearance.
+
+---
+
+# 83. Use `EXPLAIN ANALYZE` Carefully
+
+`EXPLAIN ANALYZE` actually executes the statement.
+
+For mutating statements, do not run it casually against production data.
+
+Use a safe environment or appropriate transaction/rollback procedure when evaluating write statements.
+
+---
+
+# 84. Inspect More Than Total Time
+
+When analyzing plans, consider:
+
+```text
+estimated rows vs actual rows
+scan type
+join strategy
+loops
+sorts
+temporary data
+buffer hits
+buffer reads
+rows removed by filters
+execution time
+planning time
+```
+
+Performance problems may originate from poor cardinality estimates rather than a missing index.
+
+---
+
+# 85. Use Representative Data
+
+A query that performs well on 1,000 development rows may fail on 100 million production rows.
+
+Performance-sensitive tests should use realistic:
+
+* cardinality
+* data distribution
+* null frequency
+* selectivity
+* skew
+
+where possible.
+
+Do not infer production scalability solely from tiny fixtures.
+
+---
+
+# 86. Do Not Force Index Usage From Rust
+
+Do not design application logic around assumptions such as:
+
+```text
+PostgreSQL will definitely use index X
+```
+
+The query planner decides plans based on:
+
+* statistics
+* costs
+* data distribution
+* configuration
+
+Use appropriate schema/query design and verify plans.
+
+---
+
+# 87. Avoid Premature SQL Micro-Optimization
+
+Prefer clear, correct SQL until measurements identify a bottleneck.
+
+Do not rewrite understandable SQL into obscure constructs for theoretical speed.
+
+Measure first.
+
+---
+
+# 88. Statement Timeouts
+
+Production query execution should have intentional timeout behavior.
+
+Consider PostgreSQL:
+
+```text
+statement_timeout
+```
+
+or equivalent application/session controls.
+
+A query should not consume database resources indefinitely because a request disappeared or a pathological plan occurred.
+
+Timeout values should reflect workload classes.
+
+---
+
+# 89. Lock Timeouts
+
+Where lock contention could produce excessive waits, consider an intentional:
+
+```text
+lock_timeout
+```
+
+policy.
+
+Do not let an HTTP request wait indefinitely for a database lock.
+
+Lock timeout and statement timeout solve different problems.
+
+---
+
+# 90. Idle Transactions
+
+Avoid idle-in-transaction sessions.
+
+An open idle transaction can retain:
+
+* snapshots
+* locks
+* database resources
+
+and interfere with database maintenance.
+
+Configure operational protection where appropriate.
+
+Application code should not begin a transaction before it is ready to use it.
+
+---
+
+# 91. Error Handling
+
+Do not flatten all SQLx errors into:
+
+```text
+DatabaseError
+```
+
+too early.
+
+Preserve enough information to distinguish meaningful conditions such as:
+
+```text
+unique constraint violation
+foreign key violation
+serialization failure
+deadlock
+connection failure
+timeout
+unexpected database error
+```
+
+Map these into application semantics deliberately.
+
+---
+
+# 92. Constraint Violations
+
+Prefer using database constraint identity rather than parsing human-readable PostgreSQL error messages.
+
+Named constraints can improve stable error mapping.
+
+Example:
+
+```sql
+CONSTRAINT uq_article_article_number
+UNIQUE (article_number)
+```
+
+This allows application code to map a known persistence invariant to a domain/application conflict.
+
+---
+
+# 93. Do Not Leak Database Errors
+
+Do not expose raw SQLx/PostgreSQL errors directly to API clients.
+
+Internal diagnostics may contain:
+
+* SQL structure
+* table names
+* constraint names
+* database internals
+
+Map persistence errors to application/API semantics.
+
+Preserve the internal source for observability.
+
+---
+
+# 94. Log Query Failures With Context
+
+When persistence operations fail, log useful structured context such as:
+
+```text
+operation
+repository
+request_id
+relevant domain identifier
+SQLSTATE where appropriate
+error category
+duration
+```
+
+Do not log:
+
+* passwords
+* authentication tokens
+* sensitive values
+* full confidential payloads
+
+Do not automatically log every bind parameter.
+
+---
+
+# 95. SQLSTATE
+
+Where PostgreSQL error classification matters, prefer structured PostgreSQL error codes / SQLSTATE over matching error text.
+
+Human-readable database messages may change.
+
+Protocol-level error classification is more stable.
+
+---
+
+# 96. Retry Only Retryable Errors
+
+Do not retry every `sqlx::Error`.
+
+Potentially retryable categories may include specific:
+
+* serialization failures
+* deadlocks
+* transient connection conditions
+
+depending on operation semantics.
+
+Do not retry:
+
+* invalid SQL
+* constraint violations
+* malformed data
+* permanent authorization errors
+
+as if they were transient.
+
+---
+
+# 97. Retry Whole Transactions
+
+If a transaction must be retried due to serialization/deadlock semantics, retry the full transaction body from a defined boundary.
+
+Do not replay only the failing statement if previous statements influenced its behavior.
+
+Retry loops must have:
+
+* bounded attempts
+* backoff where appropriate
+* observability
+* idempotent external semantics
+
+---
+
+# 98. Migrations Are Production Code
+
+Database migrations receive the same engineering rigor as Rust production code.
+
+Every migration must be reviewed for:
+
+* correctness
+* locking
+* data loss
+* compatibility
+* expected duration
+* rollback/recovery strategy
+* production data volume
+
+Do not treat migration files as simple setup scripts.
+
+---
+
+# 99. Migrations Must Be Version Controlled
+
+Schema changes must occur through repository-controlled migrations.
+
+Do not make manual production schema changes without capturing the resulting state in the migration history and operational process.
+
+The repository must remain capable of reproducing the schema.
+
+---
+
+# 100. Applied Migrations Are Immutable
+
+Once a migration has been applied to shared or production environments, do not edit it casually.
+
+Create a new migration to correct or extend the schema.
+
+Migration history is an append-only operational record unless the project's explicit migration policy says otherwise.
+
+---
+
+# 101. Migration Naming
+
+Migration names should communicate intent.
+
+Prefer:
+
+```text
+add_article_external_reference
+create_article_price_index
+enforce_unique_article_number
+```
+
+over:
+
+```text
+fix_db
+migration2
+update
+```
+
+Future engineers and agents must understand the schema evolution history.
+
+---
+
+# 102. Forward-Compatible Deployments
+
+Schema migrations and application deployments must be compatible with rollout strategy.
+
+For rolling or zero-downtime deployments, prefer:
+
+```text
+expand
+→ deploy compatible application
+→ migrate data
+→ contract later
+```
+
+when necessary.
+
+Do not perform breaking schema changes that require every application instance to switch atomically unless the deployment model guarantees that.
+
+---
+
+# 103. Adding Columns
+
+When adding a column to a large table, consider:
+
+* default behavior
+* nullability
+* backfill cost
+* locking
+* application compatibility
+
+Do not assume a seemingly trivial DDL statement is operationally trivial at production scale.
+
+---
+
+# 104. Data Backfills
+
+Large backfills should be engineered as data operations, not hidden casually inside a migration.
+
+Consider:
+
+* batching
+* transaction size
+* WAL generation
+* locks
+* replica load
+* execution time
+* interruption/restart behavior
+
+For large production tables, a separate controlled backfill process may be more appropriate.
+
+---
+
+# 105. Index Migrations
+
+Creating an index on a large production table may have operational effects.
+
+Evaluate whether the deployment requires PostgreSQL's concurrent index creation capabilities.
+
+Do not mechanically put long blocking index builds into normal deployment transactions.
+
+Understand the migration tool's transactional behavior before using PostgreSQL DDL requiring special transaction semantics.
+
+---
+
+# 106. Destructive Migrations
+
+Dropping:
+
+```text
+columns
+tables
+constraints
+indexes
+```
+
+requires explicit consideration of:
+
+* running old application versions
+* rollback
+* delayed consumers
+* reporting tools
+* data retention
+
+Prefer delayed cleanup after compatibility has been proven.
+
+---
+
+# 107. Migration Rollback
+
+A down migration is not automatically a safe recovery strategy.
+
+Some schema changes are not meaningfully reversible without data loss.
+
+For each significant migration, understand the operational recovery plan.
+
+Sometimes forward-fixing is safer than rollback.
+
+---
+
+# 108. Startup Migrations
+
+Do not automatically run migrations on every application startup without considering deployment architecture.
+
+Possible risks include:
+
+* multiple instances racing
+* long startup delays
+* elevated DB permissions
+* migration failure preventing all instances from starting
+
+Whether migrations run:
+
+```text
+in application startup
+in deployment pipeline
+in dedicated migration job
+```
+
+should be an explicit architectural decision.
+
+---
+
+# 109. Separate Migration Privileges Where Appropriate
+
+Runtime application users should have only required database permissions.
+
+Do not grant schema-owner or DDL privileges merely because migrations need them.
+
+Where operationally practical, use separate identities for:
+
+```text
+runtime application
+migrations
+administration
+```
+
+Apply least privilege.
+
+---
+
+# 110. No Secrets in Migration Files
+
+Do not place:
+
+* passwords
+* tokens
+* credentials
+* private connection strings
+
+inside migrations.
+
+Migrations are source-controlled artifacts.
+
+---
+
+# 111. Prepared Statements
+
+Use SQLx's ordinary query APIs so prepared statements and parameter binding can be reused where supported.
+
+Do not disable statement persistence without a concrete reason.
+
+Prepared statements improve both:
+
+* safety
+* repeated-query efficiency
+
+But be aware of infrastructure compatibility when external connection poolers/proxies alter prepared-statement behavior.
+
+---
+
+# 112. Avoid Raw SQL APIs for Normal DML
+
+Do not use raw multi-statement SQL execution for ordinary application queries when SQLx query APIs provide safer parameterized alternatives.
+
+Raw SQL execution is appropriate mainly for cases such as:
+
+* DDL
+* migrations
+* controlled administrative statements
+
+not as a shortcut around proper bind parameters.
+
+---
+
+# 113. Database Functions
+
+Use PostgreSQL functions/procedures when they provide a concrete benefit.
+
+Do not move application logic into database functions merely because SQL can express it.
+
+Appropriate candidates may include:
+
+* strongly data-local operations
+* atomic set-based transformations
+* performance-critical operations proven by measurement
+
+But functions increase database-side coupling and deployment complexity.
+
+Use them intentionally.
+
+---
+
+# 114. Triggers
+
+Do not use triggers for business workflows by default.
+
+Triggers are implicit behavior.
+
+Suitable trigger use cases may include:
+
+* database-level auditing
+* denormalization maintenance
+* specialized integrity behavior
+
+when the implicit behavior is justified and documented.
+
+Do not hide major domain workflows behind triggers.
+
+---
+
+# 115. Generated Columns
+
+Use generated columns where the database should own a deterministic derived value and query/index benefits justify it.
+
+Do not duplicate derived values in both Rust and PostgreSQL without deciding which side is authoritative.
+
+---
+
+# 116. Database Defaults
+
+Database defaults should represent safe persistence defaults.
+
+Examples:
+
+```sql
+created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+```
+
+may be appropriate.
+
+Do not duplicate the same default independently in:
+
+```text
+frontend
+API
+Rust domain
+database
+```
+
+without a clear source of truth.
+
+---
+
+# 117. Audit Fields
+
+If audit fields are required, define semantics explicitly.
+
+Examples:
+
+```text
+created_at
+created_by
+updated_at
+updated_by
+version
+```
+
+Do not add audit fields mechanically without defining:
+
+* update behavior
+* time source
+* actor source
+* bulk-update semantics
+
+---
+
+# 118. Time Source
+
+For values requiring database-transaction consistency, PostgreSQL time functions may be preferable.
+
+For domain-controlled timestamps, application time may be appropriate.
+
+Choose one intentionally.
+
+Do not accidentally mix clocks and assume exact ordering between them.
+
+---
+
+# 119. Repository APIs Should Reflect Cardinality
+
+Prefer signatures that communicate expected results.
+
+Conceptually:
+
+```rust
+async fn find(...) -> Result<Option<Article>, RepositoryError>;
+
+async fn list(...) -> Result<Vec<ArticleSummary>, RepositoryError>;
+
+async fn create(...) -> Result<Article, RepositoryError>;
+```
+
+Do not return generic row collections for operations expected to produce one item.
+
+Type signatures should encode persistence expectations.
+
+---
+
+# 120. Repository APIs Should Not Mirror Tables Blindly
+
+Repository methods should serve application/domain use cases.
+
+Avoid mechanically exposing:
+
+```text
+insert_table
+update_table
+delete_table
+select_table
+```
+
+for every table.
+
+Persistence architecture should reflect domain capability, not database tooling.
+
+---
+
+# 121. Test Queries Against PostgreSQL
+
+SQL semantics that matter should be tested against the actual PostgreSQL engine.
+
+Do not assume:
+
+* SQLite
+* mocks
+* hand-written fake repositories
+
+fully validate PostgreSQL behavior.
+
+Important SQLx/PostgreSQL integration behavior requires real PostgreSQL integration tests.
+
+---
+
+# 122. Integration Test Isolation
+
+Database integration tests must not interfere with each other.
+
+Possible strategies include:
+
+* transaction-per-test
+* dedicated schemas
+* isolated databases
+* deterministic fixtures
+
+Choose one consistent strategy.
+
+Parallel tests must not accidentally share mutable records unless testing concurrency intentionally.
+
+---
+
+# 123. Test Constraints
+
+Tests should verify important database constraints.
+
+Examples:
+
+```text
+duplicate unique value rejected
+invalid foreign key rejected
+CHECK violation rejected
+NOT NULL invariant enforced
+```
+
+Do not rely solely on migration inspection.
+
+---
+
+# 124. Test Transaction Behavior
+
+Where atomicity matters, test failure paths.
+
+Verify that partial operations do not remain committed after expected transactional failure.
+
+Do not test only successful commits.
+
+---
+
+# 125. Test Concurrency
+
+Persistence logic involving:
+
+* locking
+* uniqueness
+* idempotency
+* optimistic concurrency
+* serialization
+* competing updates
+
+should have concurrency tests when practical.
+
+Sequential unit tests cannot demonstrate concurrent correctness.
+
+---
+
+# 126. Test Migration From Realistic Prior State
+
+Important migrations should be tested from the preceding schema state.
+
+For data migrations, use representative existing data.
+
+Do not test only migration onto an empty database when production contains existing records.
+
+---
+
+# 127. Query Regression Tests
+
+When fixing a query defect, add a regression test where practical.
+
+Examples:
+
+* incorrect join
+* null handling
+* duplicate rows
+* incorrect pagination
+* concurrency bug
+* incorrect filter semantics
+
+The test should demonstrate the previous failure mode.
+
+---
+
+# 128. Performance Tests
+
+For performance-critical database paths, benchmark representative operations.
+
+Measure:
+
+```text
+query latency
+rows scanned
+rows returned
+buffers
+query count
+round trips
+connection wait
+transaction duration
+```
+
+Do not benchmark only Rust-side mapping if PostgreSQL execution dominates.
+
+---
+
+# 129. Observability
+
+Database operations should be observable without exposing sensitive data.
+
+Capture where useful:
+
+```text
+operation name
+duration
+success/failure
+connection acquisition wait
+transaction duration
+query category
+rows affected
+```
+
+Avoid unbounded telemetry cardinality.
+
+---
+
+# 130. Slow Query Visibility
+
+Establish a strategy for identifying slow database operations.
+
+This may involve:
+
+* application tracing
+* PostgreSQL logging
+* `pg_stat_statements`
+* monitoring platform telemetry
+
+depending on infrastructure.
+
+Do not rely on user complaints to identify expensive queries.
+
+---
+
+# 131. Do Not Log Full SQL With Sensitive Binds
+
+SQL text may be safe while bind values are not.
+
+Do not automatically log full parameter values.
+
+Be especially careful with:
+
+* personal data
+* credentials
+* tokens
+* financial data
+* confidential business fields
+
+Observability must not become a data leakage channel.
+
+---
+
+# 132. Query Naming
+
+Important database operations should have stable conceptual names.
+
+Example:
+
+```text
+article.find_by_id
+article.search
+article.bulk_import
+project.update_version
+```
+
+This improves traces and metrics compared with treating raw SQL strings as operational identities.
+
+---
+
+# 133. Connection Pool Metrics
+
+Where operationally relevant, observe:
+
+```text
+pool size
+idle connections
+active/acquired connections
+connection acquisition latency
+acquisition failures
+```
+
+Pool saturation often appears before database failure.
+
+Do not increase pool size automatically when acquisition latency rises.
+
+First identify the bottleneck.
+
+---
+
+# 134. Query Count Matters
+
+For request paths, track or inspect query count where it can reveal architectural regressions.
+
+A feature that changes:
+
+```text
+3 queries
+```
+
+into:
+
+```text
+503 queries
+```
+
+may still pass all functional tests.
+
+Review data-access complexity.
+
+---
+
+# 135. Avoid Database Calls in Hidden Helpers
+
+Database I/O should be visible from function semantics.
+
+Avoid utility functions whose innocent names unexpectedly execute SQL.
+
+Example:
+
+```rust
+format_article(...)
+```
+
+should not secretly query the database.
+
+Make I/O boundaries understandable to developers and agents.
+
+---
+
+# 136. Avoid Implicit Transactions
+
+Do not hide transaction creation inside low-level helpers unless the semantic boundary genuinely belongs there.
+
+Callers must understand when:
+
+* locks are held
+* commits occur
+* atomicity ends
+
+Transaction ownership should be clear from architecture.
+
+---
+
+# 137. DRY for SQL
+
+Apply DRY to domain/persistence knowledge, not mechanically to every SQL fragment.
+
+Do not build a generic SQL DSL merely because several queries share:
+
+```sql
+SELECT id, name
+```
+
+Small SQL duplication may be preferable to an abstraction that obscures query intent.
+
+Extract shared query components only when they represent a stable concept.
+
+---
+
+# 138. CTEs
+
+Use CTEs when they improve:
+
+* readability
+* composability
+* recursion
+* data modification structure
+
+Do not use CTEs merely to make SQL appear sophisticated.
+
+Understand the planner behavior of the PostgreSQL version in use.
+
+---
+
+# 139. Subqueries vs Joins
+
+Choose SQL structure based on:
+
+* semantics
+* readability
+* planner behavior
+* measured performance
+
+Do not apply rules such as:
+
+```text
+joins are always faster
+```
+
+or:
+
+```text
+subqueries are always clearer
+```
+
+PostgreSQL's planner can transform many query forms.
+
+Verify critical paths.
+
+---
+
+# 140. `COUNT(*)`
+
+Be cautious with exact counts on very large filtered data sets.
+
+Pagination UIs do not always require exact total counts.
+
+When exact count is required, accept its cost deliberately.
+
+Do not execute expensive counts automatically on every list request without evaluating user value and database impact.
+
+---
+
+# 141. Existence Checks
+
+When only existence matters, prefer semantics such as:
+
+```sql
+SELECT EXISTS(...)
+```
+
+instead of retrieving full rows or complete counts.
+
+Express the actual information requirement.
+
+---
+
+# 142. Avoid Redundant Queries
+
+Do not issue a preliminary existence query when the following mutation already provides enough information.
+
+Example:
+
+Instead of:
+
+```text
+SELECT exists
+→ UPDATE
+```
+
+consider:
+
+```sql
+UPDATE ...
+RETURNING ...
+```
+
+and interpret the result.
+
+This reduces race conditions and round trips.
+
+---
+
+# 143. Data Ownership
+
+For every persistent concept, know which component owns modification.
+
+Multiple services writing the same tables create coupling and consistency risk.
+
+If multiple writers are intentional, database constraints become even more important.
+
+Do not assume application-layer invariants survive independent writers.
+
+---
+
+# 144. Read Models
+
+For complex read-heavy endpoints, a dedicated read model may be preferable to forcing transactional domain tables into every query shape.
+
+Use read models when they provide concrete value in:
+
+* query simplicity
+* performance
+* denormalization
+* reporting
+
+Do not introduce CQRS/read-model complexity without a real need.
+
+---
+
+# 145. Denormalization
+
+Denormalize only with a defined consistency model.
+
+For every duplicated value, establish:
+
+```text
+source of truth
+update mechanism
+failure behavior
+rebuild strategy
+```
+
+Do not denormalize casually for speculative performance.
+
+---
+
+# 146. Database Security
+
+Use least-privilege database users.
+
+The runtime account should have only necessary privileges.
+
+Do not let application code rely on superuser privileges.
+
+Protect:
+
+* connection strings
+* passwords
+* certificates
+
+through the application's secret-management mechanism.
+
+---
+
+# 147. TLS
+
+Use encrypted database connections where required by network architecture and security policy.
+
+Do not disable TLS certificate validation merely to resolve deployment issues unless the trusted network model explicitly justifies it and the decision is documented.
+
+---
+
+# 148. SQL Comments
+
+Comments in complex SQL should explain:
+
+* non-obvious semantics
+* concurrency requirements
+* planner-sensitive decisions
+* intentionally unusual joins
+* compatibility constraints
+* business invariants
+
+Do not comment obvious SQL syntax.
+
+Example:
+
+```sql
+-- Lock rows in stable ID order to reduce deadlock risk when
+-- concurrent imports update overlapping article sets.
+SELECT id
+FROM article
+WHERE id = ANY($1)
+ORDER BY id
+FOR UPDATE;
+```
+
+---
+
+# 149. Rust Comments Around SQLx
+
+Document non-obvious persistence choices.
+
+Useful subjects include:
+
+* why a query cannot use compile-time SQLx macros
+* why a particular isolation level is needed
+* why a lock is required
+* why a batch size exists
+* why an index-specific query shape exists
+* why a transaction ends before an external call
+* why retries are safe
+
+Comments should preserve reasoning for humans and agents.
+
+---
+
+# 150. Architectural Documentation
+
+Significant database decisions should be captured in ADRs or architecture documentation.
+
+Examples:
+
+```text
+migration strategy
+transaction ownership
+JSONB usage
+read-model strategy
+pagination model
+optimistic concurrency
+SQLx offline mode
+pool sizing policy
+database retry policy
+schema ownership
+```
+
+Do not leave important persistence architecture discoverable only through source-code archaeology.
+
+---
+
+# 151. Code Review Checklist
+
+Before considering SQLx/PostgreSQL work complete, inspect for:
+
+* raw SQL injection risk
+* unbound user input
+* unchecked SQLx macros
+* unnecessary dynamic SQL
+* `SELECT *`
+* excessive column selection
+* incorrect NULL handling
+* database/domain model leakage
+* missing constraints
+* missing unique protection
+* missing foreign keys
+* missing relevant indexes
+* excessive indexes
+* N+1 queries
+* unbounded result sets
+* unnecessary `fetch_all`
+* excessive round trips
+* oversized batch queries
+* pool misuse
+* excessive pool size
+* connections held too long
+* transactions held too long
+* external calls inside transactions
+* incorrect isolation assumptions
+* missing serialization/deadlock handling
+* unstable lock ordering
+* race-prone read-then-write logic
+* migration compatibility
+* destructive migration risk
+* long-running migration risk
+* query-plan regressions
+* missing database integration tests
+* raw DB errors exposed externally
+* sensitive query logging
+* missing SQLx offline metadata updates
+
+---
+
+# 152. Prohibited Default Shortcuts
+
+Do not solve database problems by defaulting to:
+
+```text
+SELECT *
+fetch_all()
+String-built SQL
+format!() with user input
+query_unchecked!()
+JSONB for arbitrary structure
+Arc<Mutex<PgConnection>>
+new PgPool per request
+large max_connections
+transaction around entire HTTP handler
+SELECT-before-INSERT uniqueness checks
+SELECT-before-UPDATE existence checks
+unbounded OFFSET pagination
+index on every filterable column
+ON CONFLICT DO NOTHING to hide errors
+retry every database error
+manual production schema changes
+editing previously applied migrations
+```
+
+These mechanisms are not universally forbidden.
+
+Each requires a concrete technical reason.
+
+---
+
+# 153. Preferred Static Query Pattern
+
+Prefer code structurally similar to:
+
+```rust
+pub async fn find_by_id(
+    &self,
+    id: ArticleId,
+) -> Result<Option<Article>, RepositoryError> {
+    let row = sqlx::query_as!(
+        ArticleRecord,
+        r#"
+        SELECT
+            id,
+            article_number,
+            description,
+            created_at,
+            updated_at
+        FROM article
+        WHERE id = $1
+        "#,
+        id.as_uuid()
+    )
+    .fetch_optional(&self.pool)
+    .await?;
+
+    row.map(Article::try_from)
+        .transpose()
+        .map_err(RepositoryError::from)
+}
+```
+
+The code should make visible:
+
+```text
+query
+parameters
+expected cardinality
+mapping
+error boundary
+```
+
+---
+
+# 154. Preferred Mutation Pattern
+
+Prefer mutation and result retrieval in one round trip where appropriate:
+
+```rust
+let row = sqlx::query_as!(
+    ArticleRecord,
+    r#"
+    UPDATE article
+    SET
+        description = $1,
+        updated_at = now()
+    WHERE id = $2
+    RETURNING
+        id,
+        article_number,
+        description,
+        created_at,
+        updated_at
+    "#,
+    description,
+    id
+)
+.fetch_optional(&self.pool)
+.await?;
+```
+
+Do not automatically:
+
+```text
+SELECT
+→ UPDATE
+→ SELECT
+```
+
+when PostgreSQL can express the operation safely and clearly in one statement.
+
+---
+
+# 155. Preferred Transaction Pattern
+
+Conceptually:
+
+```rust
+let mut tx = pool.begin().await?;
+
+let article = article_repository
+    .lock_for_update(&mut tx, article_id)
+    .await?;
+
+price_repository
+    .replace_prices(&mut tx, article_id, prices)
+    .await?;
+
+article_repository
+    .mark_updated(&mut tx, article_id)
+    .await?;
+
+tx.commit().await?;
+```
+
+The transaction should contain only database work required for atomicity.
+
+Do not perform unrelated network calls before the commit.
+
+---
+
+# 156. Preferred Dynamic Query Pattern
+
+For validated dynamic filtering:
+
+```rust
+let mut query =
+    QueryBuilder::<Postgres>::new(
+        "SELECT id, article_number, description FROM article WHERE TRUE"
+    );
+
+if let Some(number) = filter.article_number {
+    query.push(" AND article_number = ");
+    query.push_bind(number);
+}
+
+if let Some(status) = filter.status {
+    query.push(" AND status = ");
+    query.push_bind(status);
+}
+
+match sort {
+    ArticleSort::ArticleNumber => {
+        query.push(" ORDER BY article_number, id");
+    }
+    ArticleSort::CreatedAt => {
+        query.push(" ORDER BY created_at, id");
+    }
+}
+
+query.push(" LIMIT ");
+query.push_bind(page_size);
+```
+
+Only trusted SQL fragments are inserted structurally.
+
+All untrusted values are bound.
+
+---
+
+# 157. Verification
+
+After modifying SQLx/PostgreSQL code, perform the strongest relevant project verification.
+
+Typically include:
+
+```bash
+cargo fmt --check
+cargo check
+cargo clippy -- -D warnings
+cargo test
+```
+
+Where SQLx compile-time metadata is used:
+
+```bash
+cargo sqlx prepare --check
+```
+
+Also run relevant:
+
+```text
+database integration tests
+migration tests
+repository tests
+concurrency tests
+API integration tests
+```
+
+depending on the change.
+
+---
+
+# 158. Migration Verification
+
+For schema changes verify:
+
+1. migration applies to the previous schema
+2. application compiles against the new schema
+3. SQLx metadata is updated
+4. relevant database integration tests pass
+5. existing data remains valid
+6. indexes/constraints are present as intended
+7. migration behavior on realistic data volume has been considered
+8. rollout compatibility has been considered
+
+A migration is not complete merely because it works on an empty local database.
+
+---
+
+# 159. Performance Verification
+
+When a database change claims performance improvement, provide evidence where practical.
+
+Suitable evidence includes:
+
+```text
+EXPLAIN
+EXPLAIN ANALYZE
+buffer usage
+query latency
+query count
+rows scanned
+rows returned
+index usage
+connection acquisition time
+transaction duration
+production-like benchmark
+```
+
+Do not describe an added index as a performance improvement until the relevant workload supports that conclusion.
+
+---
+
+# 160. Definition of Done
+
+SQLx/PostgreSQL work is complete only when:
+
+1. SQL semantics are correct.
+2. SQL injection is structurally prevented.
+3. Static queries use compile-time verification where practical.
+4. Dynamic SQL binds all untrusted values.
+5. Database models do not unnecessarily contaminate domain models.
+6. Cardinality semantics are explicit.
+7. Queries retrieve only required data.
+8. Large result sets are bounded or streamed.
+9. Database constraints enforce global persistence invariants.
+10. Indexes reflect actual access patterns.
+11. N+1 queries and unnecessary round trips have been considered.
+12. Connection-pool use is bounded and intentional.
+13. Connections are not held unnecessarily.
+14. Transaction scope matches atomicity requirements.
+15. Transactions remain short.
+16. External network calls are not unnecessarily performed inside transactions.
+17. Isolation semantics are understood.
+18. Deadlocks and serialization failures are handled where relevant.
+19. Lock ordering is intentional where multiple resources are locked.
+20. Mutations avoid race-prone read-then-write patterns where possible.
+21. Migrations are reproducible and version controlled.
+22. Applied migrations have not been casually modified.
+23. Deployment compatibility has been considered.
+24. Destructive/schema-heavy changes have an operational strategy.
+25. SQLx offline metadata is synchronized where used.
+26. Database errors are mapped intentionally.
+27. Sensitive database information is not exposed or logged.
+28. Real PostgreSQL integration tests cover relevant behavior.
+29. Performance claims are measured rather than assumed.
+30. The resulting SQL remains understandable to another engineer or coding agent.
+
+When choosing between clever persistence abstraction and explicit SQL with clear transactional semantics, prefer explicit SQL.
+
+When choosing between application-only validation and a database constraint for a global invariant, use the database constraint.
+
+When choosing between more connections and a better query, improve the query first.
+
+When choosing between theoretical database optimization and measured evidence, measure first.
