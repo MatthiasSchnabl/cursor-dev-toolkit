@@ -49,6 +49,11 @@ for skill in gstack-review gstack-qa gstack-investigate; do
 done
 pass "gstack skills"
 
+RUST_ENG_SKILL="$PLUGIN_DIR/skills/engineering/rust-engineering"
+[[ -f "$RUST_ENG_SKILL/SKILL.md" ]] || fail "missing rust-engineering skill"
+[[ -f "$RUST_ENG_SKILL/references/rust-engineering-standard.md" ]] || fail "missing rust-engineering standard reference"
+pass "rust-engineering skill"
+
 [[ -d "$SUPERPOWERS_DIR/.git" ]] || fail "superpowers missing"
 [[ "$(git -C "$SUPERPOWERS_DIR" rev-parse HEAD)" == "$SUPERPOWERS_REF" ]] || fail "superpowers ref mismatch"
 pass "Superpowers at $SUPERPOWERS_REF"

@@ -9,6 +9,7 @@ One-time install → available in all local Cursor projects via User-scope plugi
 - Global tool routing rules and skills
 - Pinned runtime bootstrap (gstack, Graphify, GBrain, Superpowers checkout)
 - `/tooling-doctor`, `/tooling-setup`, `/tooling-update` commands
+- `/rust-engineering` — evidence-based Rust audit (default) and controlled fix against an open audit (`skills/engineering/rust-engineering/`; standard body must stay in sync with `rules/rust-engineering-standard.mdc`)
 - Cloud install/start scripts for minimal per-repo adapters
 
 ## Install (local)

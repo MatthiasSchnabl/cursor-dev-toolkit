@@ -11,7 +11,11 @@
   "license": "MIT",
   "keywords": ["gbrain", "graphify", "gstack", "superpowers", "tooling"],
   "rules": "./rules/",
-  "skills": "./skills/",
+  "skills": [
+    "./skills/gbrain",
+    "./skills/graphify",
+    "./skills/engineering/rust-engineering"
+  ],
   "commands": "./commands/",
   "hooks": "./hooks/hooks.json"
 }

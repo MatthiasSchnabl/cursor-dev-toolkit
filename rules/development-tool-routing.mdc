@@ -43,4 +43,10 @@ Testing and quality follow `testing-quality-engineering-standard.mdc`. Test beha
 
 Security and supply chain follow `security-supply-chain-engineering-standard.mdc`. Least privilege, fail closed; secrets must not be logged or committed.
 
+## Engineering audits
+
+Repository-wide or scoped engineering audits use plugin skills under `skills/engineering/`. Start with `/rust-engineering` (default **audit**). **Fix** is allowed only against a completed open audit in `docs/engineering-audits/rust/`; never invent findings or silently re-audit in fix mode. Further domains (Axum, SQLx, testing, security, full audit) come later.
+
+The audit skill reads `references/rust-engineering-standard.md`, which must stay in sync with `rules/rust-engineering-standard.mdc` (same body; the `.mdc` keeps Cursor globs).
+
 Project-specific rules in `AGENTS.md` take precedence over this global routing.
