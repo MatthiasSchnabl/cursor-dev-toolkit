@@ -1,0 +1,2757 @@
+---
+description: Production-grade security and supply-chain standard — least privilege, fail closed, secrets never in logs or source
+globs: "**/*.rs,**/Cargo.toml,**/rust-toolchain.toml,**/.cargo/**,**/Cargo.lock,**/Makefile,**/Dockerfile*,**/docker-compose.yml"
+alwaysApply: false
+---
+
+# Security & Supply-Chain Engineering Standard
+
+These instructions are mandatory for security-relevant engineering work in this repository.
+
+This standard supplements:
+
+* the Rust Engineering Standard
+* the Rust Axum Engineering Standard
+* the Rust SQLx + PostgreSQL Engineering Standard
+* the Testing & Quality Engineering Standard
+
+The goal is software that is:
+
+* secure by design
+* secure by default
+* least-privileged
+* resilient against malformed and hostile input
+* explicit about trust boundaries
+* auditable
+* dependency-conscious
+* reproducibly buildable
+* observable without leaking sensitive information
+* maintainable during vulnerability remediation
+
+Security is an architectural property.
+
+It must not be treated as a final review step.
+
+---
+
+# 1. Security Priority Order
+
+When security decisions conflict, use this order:
+
+1. Prevent unauthorized access
+2. Protect data confidentiality and integrity
+3. Preserve authentication and authorization correctness
+4. Preserve data and transactional integrity
+5. Minimize attack surface
+6. Minimize privilege
+7. Contain failures
+8. Maintain auditability
+9. Preserve availability
+10. Developer convenience
+
+Convenience does not justify weakening a security boundary.
+
+---
+
+# 2. Security Principles
+
+Apply these principles throughout the system:
+
+```text
+least privilege
+defense in depth
+secure by default
+fail closed
+explicit trust boundaries
+minimal attack surface
+strong typing
+input validation
+output control
+separation of duties
+bounded resource consumption
+dependency minimization
+```
+
+Do not rely on one security layer to compensate permanently for weaknesses in another.
+
+---
+
+# 3. Assume Input Is Hostile
+
+Treat all externally controlled data as untrusted.
+
+This includes:
+
+```text
+HTTP requests
+headers
+cookies
+JWT claims
+query parameters
+path parameters
+JSON
+files
+URLs
+database data from external integrations
+third-party API responses
+message queues
+environment-provided external data
+import files
+webhooks
+```
+
+Validate before trusting.
+
+External systems are not automatically trusted merely because they are internal or authenticated.
+
+---
+
+# 4. Define Trust Boundaries
+
+Architectural boundaries must be identifiable.
+
+Typical trust transitions include:
+
+```text
+Internet → reverse proxy
+reverse proxy → Axum
+Axum → application
+application → database
+application → external service
+user → uploaded file
+integration → imported data
+CI → artifact repository
+source repository → build pipeline
+```
+
+Security-sensitive transformations should occur explicitly at these boundaries.
+
+---
+
+# 5. Threat Modeling
+
+For significant new capabilities, consider relevant threats before implementation.
+
+At minimum ask:
+
+```text
+What data is valuable?
+Who may access it?
+What input is attacker-controlled?
+What privileges exist?
+What systems are trusted?
+What external calls occur?
+What happens if authentication fails?
+What happens if authorization is bypassed?
+What happens under extreme resource usage?
+What happens if a dependency is compromised?
+```
+
+Threat modeling should scale with risk.
+
+Do not create heavyweight threat-model documentation for trivial changes.
+
+---
+
+# 6. Security Requirements Are Requirements
+
+Security behavior must be treated like functional behavior.
+
+Examples:
+
+```text
+only owner may update resource
+tenant data must remain isolated
+token must contain required audience
+request body must not exceed defined size
+secret must never appear in logs
+```
+
+These are testable requirements.
+
+Do not leave them as undocumented assumptions.
+
+---
+
+# 7. Authentication and Authorization Are Separate
+
+Authentication answers:
+
+> Who is making this request?
+
+Authorization answers:
+
+> Is that identity allowed to perform this action on this resource?
+
+Never treat:
+
+```text
+authenticated == authorized
+```
+
+Every protected operation requires the correct authorization semantics.
+
+---
+
+# 8. Authenticate at a Consistent Boundary
+
+Authentication should normally occur before business operations execute.
+
+Produce a typed authenticated identity such as:
+
+```rust
+AuthenticatedUser
+ServicePrincipal
+```
+
+Do not propagate raw bearer tokens through application/domain code.
+
+---
+
+# 9. Validate Tokens Completely
+
+When using JWT/OIDC or similar token-based authentication, validate all security-relevant properties applicable to the protocol:
+
+```text
+signature
+accepted algorithm
+issuer
+audience
+expiration
+not-before
+required claims
+token purpose
+```
+
+Do not merely decode a JWT and trust its claims.
+
+---
+
+# 10. Do Not Trust Token Algorithms From Input
+
+Token verification must use explicitly permitted algorithms.
+
+Do not allow untrusted token metadata to determine insecure verification behavior.
+
+Never implement custom JWT verification.
+
+Use maintained cryptographic/protocol libraries.
+
+---
+
+# 11. Authorization Must Be Object-Aware
+
+Possession of a valid object ID does not grant access to the object.
+
+Every operation using externally supplied identifiers must consider object-level authorization.
+
+Example:
+
+```text
+GET /projects/{project_id}
+```
+
+must verify that the authenticated principal may access that specific project.
+
+Do not rely on identifier obscurity.
+
+---
+
+# 12. Prevent BOLA / IDOR
+
+Object lookup and authorization should be coupled semantically.
+
+Avoid:
+
+```text
+load resource by arbitrary ID
+→ return it
+```
+
+without access control.
+
+Prefer application operations that include security context:
+
+```rust
+load_project(&ctx, project_id)
+```
+
+where authorization is deliberately enforced.
+
+---
+
+# 13. Property-Level Authorization
+
+Authorization may apply to individual fields as well as complete resources.
+
+Do not automatically deserialize client input directly into internal persistent models.
+
+An ordinary user modifying:
+
+```json
+{
+  "name": "new name",
+  "is_admin": true
+}
+```
+
+must not gain privileged properties simply because those fields exist in the Rust struct.
+
+Use explicit request DTOs.
+
+---
+
+# 14. Prevent Mass Assignment
+
+Only expose fields that the caller is explicitly allowed to modify.
+
+Preferred:
+
+```rust
+struct UpdateProfileRequest {
+    display_name: Option<String>,
+}
+```
+
+rather than deserializing into the complete persistence/domain representation.
+
+---
+
+# 15. Function-Level Authorization
+
+Administrative or privileged functionality must enforce authorization server-side.
+
+Frontend visibility is not authorization.
+
+Hidden buttons do not secure endpoints.
+
+Do not assume routes under:
+
+```text
+/admin
+```
+
+are protected merely because of their path.
+
+---
+
+# 16. Authorization Defaults
+
+Prefer deny-by-default semantics.
+
+Unknown roles, permissions, states, or policies should not implicitly receive access.
+
+Fail closed.
+
+---
+
+# 17. Centralize Policy Without Hiding It
+
+Shared authorization policies should be implemented consistently.
+
+Avoid duplicating logic like:
+
+```rust
+if user.role == "admin"
+```
+
+across handlers.
+
+Prefer explicit policy functions or services.
+
+But do not hide authorization so deeply that reviewers cannot determine whether a route is protected.
+
+---
+
+# 18. Tenant Isolation
+
+Multi-tenant applications must treat tenant separation as a critical security invariant.
+
+Every relevant:
+
+```text
+SELECT
+UPDATE
+DELETE
+INSERT
+```
+
+must preserve tenant boundaries.
+
+Do not rely only on frontend-provided tenant IDs.
+
+Derive tenant context from trusted authenticated context where possible.
+
+---
+
+# 19. Tenant IDs Are Security Context
+
+Do not trust:
+
+```text
+X-Tenant-ID
+?tenant=...
+JSON tenant_id
+```
+
+as authoritative tenant identity unless the authenticated principal is explicitly authorized to select tenants.
+
+Tenant selection must itself be authorized.
+
+---
+
+# 20. Defense in Depth for Tenant Isolation
+
+Where risk justifies it, tenant isolation should exist at multiple layers:
+
+```text
+authenticated context
+application authorization
+query scoping
+database constraints/policies where appropriate
+tests
+```
+
+Do not depend solely on developers remembering `WHERE tenant_id = ...`.
+
+---
+
+# 21. Service-to-Service Authentication
+
+Internal services are not automatically trusted.
+
+Service-to-service calls should use authenticated identities where architecture requires them.
+
+Do not base security solely on network location.
+
+---
+
+# 22. Session Security
+
+Where browser sessions or cookies are used, configure them deliberately.
+
+Security-sensitive cookies should normally use appropriate:
+
+```text
+Secure
+HttpOnly
+SameSite
+```
+
+attributes.
+
+Session identifiers must have sufficient entropy.
+
+Do not store sensitive application state directly in unprotected client-side cookies.
+
+---
+
+# 23. CSRF
+
+Cookie-authenticated state-changing browser endpoints require explicit CSRF consideration.
+
+CORS does not replace CSRF protection.
+
+Choose protection appropriate to the architecture, such as:
+
+```text
+SameSite policies
+CSRF tokens
+origin verification
+```
+
+Do not add CSRF mechanisms mechanically to bearer-token APIs where the threat model does not apply.
+
+---
+
+# 24. Password Handling
+
+If the system handles passwords:
+
+* never store plaintext passwords
+* never log passwords
+* use an established password-hashing algorithm/library
+* use per-password salts
+* support secure parameter upgrades
+* consider resource-cost implications
+
+Do not implement password hashing yourself.
+
+Do not use general-purpose fast cryptographic hashes for password storage.
+
+---
+
+# 25. Password Comparison
+
+Use the verification API of the password-hashing library.
+
+Do not write custom cryptographic comparison logic.
+
+---
+
+# 26. Secrets
+
+Secrets include:
+
+```text
+passwords
+API keys
+private keys
+database credentials
+OAuth client secrets
+signing keys
+encryption keys
+service credentials
+```
+
+Secrets must not be committed to source control.
+
+---
+
+# 27. Source Code Is Not a Secret Store
+
+Never place secrets in:
+
+```text
+Rust source
+Cargo.toml
+migration files
+test fixtures
+Dockerfiles
+example configuration
+README files
+GitHub workflow source
+```
+
+Use the environment's approved secret-management mechanism.
+
+---
+
+# 28. Environment Variables
+
+Environment variables may be an appropriate delivery mechanism for runtime secrets depending on deployment architecture.
+
+But environment variables are not automatically secure storage.
+
+Understand:
+
+* process visibility
+* diagnostic dumps
+* container configuration
+* CI exposure
+
+Do not print environment configuration wholesale.
+
+---
+
+# 29. Secret Redaction
+
+Secret-bearing types should avoid accidental output.
+
+Do not derive or implement:
+
+```rust
+Debug
+Display
+Serialize
+```
+
+for secret values unless their behavior safely prevents disclosure.
+
+Consider dedicated secret wrapper types.
+
+---
+
+# 30. Secret Rotation
+
+Credentials and keys must be rotatable.
+
+Do not build architectures that require recompilation to rotate credentials.
+
+Where applicable, support overlapping old/new credentials during controlled rotation.
+
+---
+
+# 31. Secrets in Errors
+
+Never include secrets in:
+
+```text
+error messages
+panic messages
+Problem Details
+logs
+traces
+metrics labels
+```
+
+Redact before crossing observability boundaries.
+
+---
+
+# 32. Logging
+
+Logging must balance diagnosability and confidentiality.
+
+Log:
+
+```text
+operation
+request ID
+resource IDs where safe
+result category
+duration
+error class
+```
+
+Do not automatically log complete input/output payloads.
+
+---
+
+# 33. Sensitive Data Classification
+
+Know which data is sensitive.
+
+Examples may include:
+
+```text
+credentials
+tokens
+personal information
+financial information
+commercially confidential data
+security configuration
+```
+
+Handle them according to system requirements.
+
+Do not assume "internal" means non-sensitive.
+
+---
+
+# 34. PII in Logs
+
+Do not log personal information unless required for a defined operational purpose.
+
+Prefer stable internal identifiers over complete names, addresses, emails, or payloads.
+
+---
+
+# 35. Authorization Headers
+
+Never log:
+
+```text
+Authorization
+Proxy-Authorization
+Cookie
+Set-Cookie
+```
+
+without explicit redaction.
+
+HTTP logging middleware must account for this.
+
+---
+
+# 36. Structured Logging
+
+Use structured logging rather than constructing uncontrolled strings from external input.
+
+External values should be fields, not log format strings.
+
+This improves filtering and reduces log-injection risk.
+
+---
+
+# 37. Log Injection
+
+Treat newline/control characters in external input carefully.
+
+Do not permit attacker-controlled values to forge apparently separate log entries in systems where this is possible.
+
+Prefer structured logging systems.
+
+---
+
+# 38. Errors Must Not Leak Internals
+
+External errors must not expose:
+
+```text
+stack traces
+SQL queries
+database hostnames
+filesystem paths
+internal service names
+source file locations
+secret values
+constraint internals unnecessarily
+```
+
+Return sanitized client-facing errors.
+
+Preserve detailed diagnostics internally.
+
+---
+
+# 39. Panic Handling
+
+Panics are programming failures, not client error handling.
+
+Do not expose panic details to users.
+
+Where panic-catching middleware exists, treat it only as containment.
+
+Investigate the panic.
+
+---
+
+# 40. Input Validation
+
+Validate untrusted input for:
+
+```text
+type
+length
+range
+format
+cardinality
+semantic validity
+authorization relevance
+resource cost
+```
+
+Correct syntax does not imply safe input.
+
+---
+
+# 41. Length Limits
+
+Apply meaningful limits to:
+
+```text
+strings
+arrays
+request bodies
+uploads
+query parameters
+filter depth
+bulk records
+```
+
+Do not rely solely on available memory.
+
+---
+
+# 42. Resource Consumption Is a Security Concern
+
+A syntactically valid request can still be malicious.
+
+Protect:
+
+```text
+CPU
+memory
+database connections
+threads
+external-service calls
+storage
+queue capacity
+```
+
+with bounded behavior.
+
+---
+
+# 43. Request Body Limits
+
+Configure body limits appropriate to each endpoint.
+
+Do not permit unbounded buffering.
+
+Large uploads should use streaming where appropriate.
+
+---
+
+# 44. Pagination Limits
+
+Never trust client-provided page sizes without server-side bounds.
+
+Do not expose unlimited list endpoints.
+
+---
+
+# 45. Filter Complexity
+
+Dynamic filtering APIs must limit pathological complexity.
+
+Consider bounds for:
+
+```text
+AST depth
+number of predicates
+IN-list size
+wildcards
+sort fields
+joins/projections
+```
+
+A valid filter can still be a denial-of-service vector.
+
+---
+
+# 46. Regex
+
+Avoid executing unrestricted attacker-controlled regular expressions with engines or patterns that can exhibit pathological resource behavior.
+
+Use bounded inputs and suitable engines.
+
+---
+
+# 47. Compression
+
+Be aware of resource-amplification risks around compression/decompression.
+
+Do not decompress arbitrarily large compressed input without limits.
+
+---
+
+# 48. SQL Injection
+
+All variable SQL values must use bind parameters.
+
+Never concatenate untrusted values into SQL.
+
+This applies even when a value:
+
+```text
+looks numeric
+comes from an internal API
+has already been frontend-validated
+```
+
+---
+
+# 49. Dynamic SQL Identifiers
+
+Identifiers that cannot be parameter-bound must come from trusted enumerations or explicit mappings.
+
+Never use arbitrary external strings as:
+
+```text
+column names
+table names
+operators
+ORDER BY fragments
+```
+
+---
+
+# 50. Command Injection
+
+Avoid invoking shell commands where direct APIs exist.
+
+Never construct shell commands using untrusted input.
+
+Prefer process APIs that pass arguments separately from the executable.
+
+Do not invoke:
+
+```text
+sh -c
+bash -c
+cmd /c
+```
+
+with attacker-controlled values.
+
+---
+
+# 51. Path Traversal
+
+File paths influenced by external input require strict validation.
+
+Do not trust:
+
+```text
+../
+absolute paths
+encoded traversal
+symlink behavior
+```
+
+Ensure resolved paths remain within approved storage boundaries.
+
+---
+
+# 52. Uploaded Filenames
+
+Treat client-provided filenames as metadata.
+
+Do not use them directly as server filesystem paths.
+
+Generate server-controlled storage identifiers.
+
+---
+
+# 53. File Uploads
+
+File uploads require explicit controls for:
+
+```text
+size
+allowed type
+storage location
+authorization
+filename handling
+content processing
+retention
+```
+
+Do not trust MIME type or filename extension alone.
+
+---
+
+# 54. SSRF
+
+Any functionality that fetches caller-influenced URLs must be treated as security-sensitive.
+
+Protect against requests to:
+
+```text
+localhost
+loopback
+private network ranges
+link-local services
+cloud metadata endpoints
+internal hostnames
+unexpected protocols
+```
+
+where the use case does not require them.
+
+---
+
+# 55. SSRF Requires URL Validation
+
+Do not solve SSRF solely with string-prefix checks.
+
+Consider:
+
+```text
+scheme
+hostname
+DNS resolution
+redirects
+resolved address
+IPv4/IPv6
+rebinding risk
+destination allowlists
+```
+
+Prefer explicit allowlists when the legitimate destination set is known.
+
+---
+
+# 56. Outbound Requests
+
+Outbound HTTP access is a trust boundary.
+
+Apply:
+
+```text
+timeouts
+response-size limits
+redirect policy
+TLS verification
+authentication policy
+input validation
+```
+
+Do not assume third-party responses are trustworthy.
+
+---
+
+# 57. Unsafe Consumption of External APIs
+
+Validate external service responses just as carefully as user input when their data affects security or persistence.
+
+Third-party compromise must not automatically become local compromise.
+
+---
+
+# 58. TLS
+
+Use TLS for sensitive network communication where required by the architecture.
+
+Do not disable certificate verification as a production workaround.
+
+Do not implement TLS manually.
+
+---
+
+# 59. Certificate Validation
+
+Certificate validation failures must not silently downgrade to insecure communication.
+
+Development exceptions must remain development-specific.
+
+---
+
+# 60. Cryptography
+
+Never implement custom cryptographic algorithms.
+
+Use maintained, reviewed libraries and established protocols.
+
+Security-sensitive cryptography should have a clear requirement.
+
+Do not use cryptography merely because it appears sophisticated.
+
+---
+
+# 61. Encryption Is Not Hashing
+
+Use the correct primitive for the problem.
+
+```text
+encryption → confidentiality
+hashing → integrity/fingerprinting
+MAC → authenticated integrity
+password hashing → credential storage
+digital signature → authenticity/integrity
+```
+
+Do not substitute one for another casually.
+
+---
+
+# 62. Randomness
+
+Security-sensitive random values must use a cryptographically secure random source.
+
+Examples:
+
+```text
+session IDs
+tokens
+nonces
+password reset tokens
+API keys
+```
+
+Do not use predictable pseudo-random generators for secrets.
+
+---
+
+# 63. Token Entropy
+
+Security tokens must contain sufficient unpredictable entropy.
+
+Do not derive security tokens from:
+
+```text
+timestamps
+sequential IDs
+user IDs
+email addresses
+```
+
+---
+
+# 64. Encryption Key Management
+
+Encryption security depends on key security.
+
+Do not store encrypted data and its encryption key in the same uncontrolled location.
+
+Key lifecycle must consider:
+
+```text
+generation
+storage
+rotation
+access
+revocation
+recovery
+```
+
+---
+
+# 65. Unsafe Rust
+
+`unsafe` expands the security attack surface.
+
+Security-sensitive `unsafe` code requires:
+
+* minimal scope
+* explicit `SAFETY:` invariants
+* focused review
+* tests
+* Miri/sanitizer/fuzzing where applicable
+
+Do not use `unsafe` for speculative performance.
+
+---
+
+# 66. FFI
+
+Foreign Function Interfaces bypass many Rust safety guarantees.
+
+Treat FFI boundaries as untrusted.
+
+Validate:
+
+```text
+pointer validity
+lifetimes
+sizes
+ownership
+thread-safety
+encoding
+error semantics
+```
+
+Keep unsafe FFI wrappers small and encapsulated.
+
+---
+
+# 67. Deserialization
+
+Deserialized data remains untrusted.
+
+`serde` successfully producing a Rust struct does not prove domain validity.
+
+Convert external DTOs into validated domain types.
+
+---
+
+# 68. Deserialization Limits
+
+For attacker-controlled complex formats, consider:
+
+```text
+input size
+nesting depth
+collection size
+parser resource use
+```
+
+Do not allow arbitrary structured input to consume unbounded memory.
+
+---
+
+# 69. Unknown Fields
+
+Choose unknown-field behavior deliberately.
+
+Strict command APIs may benefit from rejecting unexpected properties.
+
+Compatibility-oriented APIs may need to ignore them.
+
+Do not select behavior accidentally.
+
+---
+
+# 70. Serialization
+
+Do not serialize internal types directly merely because they derive `Serialize`.
+
+External API representations should deliberately control what leaves the system.
+
+This prevents accidental data exposure when internal structs acquire new fields.
+
+---
+
+# 71. Sensitive Fields
+
+Types containing:
+
+```text
+password hashes
+tokens
+secrets
+internal authorization state
+private metadata
+```
+
+should not automatically implement external serialization.
+
+Use dedicated response DTOs.
+
+---
+
+# 72. Mass Data Exposure
+
+Return only fields required by the caller.
+
+Do not retrieve and serialize complete database records when a smaller representation is appropriate.
+
+Data minimization improves both performance and security.
+
+---
+
+# 73. CORS
+
+Configure CORS explicitly.
+
+Do not use unrestricted production origins merely to make browsers work.
+
+CORS is not authentication or authorization.
+
+---
+
+# 74. Security Headers
+
+Where applicable to the deployment model, configure relevant HTTP security headers intentionally.
+
+Coordinate application and reverse-proxy responsibilities.
+
+Do not create contradictory policies at different layers.
+
+---
+
+# 75. Forwarded Headers
+
+Do not trust:
+
+```text
+Forwarded
+X-Forwarded-For
+X-Forwarded-Proto
+X-Forwarded-Host
+```
+
+from arbitrary clients.
+
+Trust them only behind controlled proxies that sanitize them correctly.
+
+---
+
+# 76. Host Header
+
+Where host information influences security-sensitive behavior, validate trusted hosts.
+
+Do not construct security-sensitive absolute URLs from arbitrary Host headers without consideration.
+
+---
+
+# 77. Redirects
+
+Redirect destinations influenced by external input require validation.
+
+Prevent open redirects.
+
+Prefer relative or allowlisted destinations.
+
+---
+
+# 78. Webhooks
+
+Incoming webhooks must authenticate the sender according to the provider's security mechanism.
+
+Where signatures are used:
+
+* verify them correctly
+* verify the raw expected payload
+* consider timestamp/replay protection
+
+Do not trust a webhook because it originates from a plausible IP alone unless that is the documented security model.
+
+---
+
+# 79. Replay Protection
+
+Security-sensitive operations may require protection against replay.
+
+Consider:
+
+```text
+nonces
+timestamps
+idempotency keys
+signature timestamps
+one-time tokens
+```
+
+depending on protocol semantics.
+
+---
+
+# 80. Rate Limiting
+
+Apply rate limits where abuse risk exists.
+
+Possible scopes:
+
+```text
+IP
+user
+tenant
+API client
+endpoint
+operation
+```
+
+Rate limiting is not a substitute for authorization.
+
+---
+
+# 81. Sensitive Business Flows
+
+Protect operations that are economically or operationally abusable even if each individual request is authorized.
+
+Examples:
+
+```text
+bulk exports
+email sending
+expensive reports
+account creation
+coupon redemption
+external paid API calls
+```
+
+Consider quotas, rate limits, confirmation, or workflow controls according to the use case.
+
+---
+
+# 82. Denial of Service
+
+Security review must consider intentionally expensive requests.
+
+Review:
+
+```text
+database complexity
+memory allocations
+CPU-heavy parsing
+blocking operations
+external request fan-out
+queue growth
+```
+
+Bound work wherever practical.
+
+---
+
+# 83. Amplification
+
+Avoid endpoints where a tiny request can trigger uncontrolled:
+
+```text
+database work
+external calls
+messages
+emails
+large responses
+```
+
+Apply budgets and admission control.
+
+---
+
+# 84. Database Least Privilege
+
+Runtime application users should receive only required database permissions.
+
+Do not run the application as:
+
+```text
+PostgreSQL superuser
+schema owner
+migration administrator
+```
+
+without a concrete requirement.
+
+---
+
+# 85. Separate Migration Identity
+
+Where infrastructure supports it, separate:
+
+```text
+application runtime credentials
+migration credentials
+administrative credentials
+```
+
+This reduces blast radius.
+
+---
+
+# 86. Database Injection Defense
+
+Parameterized SQL remains mandatory even when the application database account has restricted permissions.
+
+Least privilege and injection prevention are complementary controls.
+
+---
+
+# 87. Database Constraints
+
+Security-sensitive invariants should be enforced by the database where they are universal persistence rules.
+
+Application checks alone can be bypassed by bugs, race conditions, scripts, or additional writers.
+
+---
+
+# 88. Error-Based Information Disclosure
+
+Do not expose differences unnecessarily where they reveal sensitive information.
+
+Example:
+
+```text
+"account does not exist"
+vs
+"password incorrect"
+```
+
+may create account enumeration risk depending on the workflow.
+
+Design authentication/recovery responses deliberately.
+
+---
+
+# 89. Timing Side Channels
+
+Do not write custom constant-time security code.
+
+Use established cryptographic verification APIs where timing resistance matters.
+
+Avoid obvious secret-dependent behavior in security-sensitive comparisons.
+
+---
+
+# 90. Dependency Minimization
+
+Every dependency increases:
+
+```text
+attack surface
+supply-chain exposure
+maintenance burden
+compile complexity
+transitive dependencies
+```
+
+Do not add a crate for trivial functionality already handled clearly by the standard library or an existing dependency.
+
+---
+
+# 91. Prefer Mature Dependencies
+
+For security-sensitive functionality, prefer dependencies with:
+
+```text
+active maintenance
+meaningful adoption
+security history
+clear ownership
+documented releases
+appropriate licensing
+```
+
+Do not select security libraries primarily by API convenience.
+
+---
+
+# 92. Inspect New Dependencies
+
+Before adding a significant dependency, inspect:
+
+```text
+purpose
+maintenance status
+repository
+release history
+transitive dependencies
+features
+license
+unsafe usage where relevant
+security advisories
+```
+
+Higher scrutiny is required for security-sensitive dependencies.
+
+---
+
+# 93. Transitive Dependencies Matter
+
+A direct dependency can introduce many transitive dependencies.
+
+Review the complete graph where necessary.
+
+Useful tooling includes:
+
+```bash
+cargo tree
+cargo tree -d
+```
+
+Do not evaluate only the direct line in `Cargo.toml`.
+
+---
+
+# 94. Duplicate Dependency Versions
+
+Multiple versions of the same crate are not automatically defects.
+
+But review them where they:
+
+```text
+increase attack surface
+duplicate vulnerable versions
+increase binary size
+cause incompatible types
+```
+
+Do not force version unification if it breaks legitimate compatibility.
+
+---
+
+# 95. `Cargo.lock`
+
+Deployable applications should commit `Cargo.lock`.
+
+The lock file fixes resolved dependency versions and improves build reproducibility.
+
+Do not routinely delete or regenerate it without reviewing the resulting dependency changes.
+
+---
+
+# 96. Dependency Updates
+
+Dependency updates are code changes.
+
+Review:
+
+```text
+release notes
+security fixes
+breaking behavior
+transitive changes
+feature changes
+```
+
+where material.
+
+Do not automatically merge major dependency changes solely because CI is green.
+
+---
+
+# 97. RustSec
+
+Use the RustSec advisory ecosystem to detect known vulnerabilities in Rust dependencies.
+
+Run:
+
+```bash
+cargo audit
+```
+
+or an equivalent automated RustSec-backed mechanism.
+
+Security advisory checks should run automatically in CI or scheduled security workflows.
+
+---
+
+# 98. `cargo audit`
+
+`cargo audit` evaluates the dependency resolution recorded in `Cargo.lock`.
+
+Known vulnerable dependencies must not be ignored silently.
+
+For every accepted advisory exception document:
+
+```text
+reason
+impact analysis
+mitigation
+owner
+expiry/review date
+```
+
+---
+
+# 99. `cargo deny`
+
+Use `cargo-deny` where appropriate to enforce dependency policy.
+
+Typical checks include:
+
+```text
+advisories
+bans
+licenses
+sources
+```
+
+This should complement, not replace, ordinary code review.
+
+---
+
+# 100. Advisory Exceptions
+
+Do not maintain permanent advisory ignore lists by accident.
+
+Every exception should be:
+
+* explicit
+* justified
+* time-bounded where possible
+* periodically reviewed
+
+Remove obsolete exceptions promptly.
+
+---
+
+# 101. Dependency Sources
+
+Prefer controlled dependency sources.
+
+Be cautious with:
+
+```text
+arbitrary Git repositories
+unreviewed forks
+untrusted registries
+path dependencies outside the repository
+```
+
+Source policy may be enforced with `cargo-deny`.
+
+---
+
+# 102. Git Dependencies
+
+A dependency referencing a Git branch or mutable revision creates reproducibility and supply-chain risks.
+
+Prefer immutable versions or revisions where Git dependencies are unavoidable.
+
+Document why the dependency cannot come from the normal registry or internal approved source.
+
+---
+
+# 103. Crate Features
+
+Disable unnecessary dependency features where practical.
+
+Avoid enabling:
+
+```text
+default-features = true
+```
+
+blindly when defaults activate substantial unused functionality.
+
+But do not create excessive feature configuration complexity for negligible security benefit.
+
+---
+
+# 104. Feature Review
+
+Security-sensitive dependency features should be deliberate.
+
+Examples include:
+
+```text
+native TLS
+rustls
+dangerous/insecure modes
+debug APIs
+test helpers
+legacy protocol support
+```
+
+Do not enable insecure compatibility features accidentally.
+
+---
+
+# 105. Build Scripts
+
+`build.rs` executes code during the build.
+
+Treat build-script dependencies as part of the software supply chain.
+
+Do not assume compile-time code is harmless because it does not ship in the final binary.
+
+---
+
+# 106. Procedural Macros
+
+Procedural macros execute during compilation.
+
+Treat proc-macro crates as executable supply-chain dependencies.
+
+Review significant or unusual proc-macro additions accordingly.
+
+---
+
+# 107. Native Dependencies
+
+Crates wrapping native C/C++ libraries add additional supply-chain and memory-safety considerations.
+
+Use them when justified.
+
+Prefer pure Rust when capabilities and maturity are equivalent, but do not select inferior libraries merely to avoid native code.
+
+---
+
+# 108. Unsafe Dependencies
+
+The presence of `unsafe` in a dependency is not automatically unacceptable.
+
+But security-critical dependencies with substantial unsafe code may require greater scrutiny.
+
+Evaluate risk rather than applying a simplistic ban.
+
+---
+
+# 109. License Policy
+
+Dependency licenses must comply with project policy.
+
+Use automated license checking where appropriate.
+
+Do not discover incompatible licenses only during release preparation.
+
+---
+
+# 110. Vulnerability Scanning Is Not Sufficient
+
+A clean `cargo audit` means:
+
+> no known matching advisory was detected
+
+It does not mean:
+
+> the application is secure
+
+Security requires architecture, validation, authorization, testing, and operational controls.
+
+---
+
+# 111. Dependency Provenance
+
+For high-assurance or regulated environments, consider software artifact provenance.
+
+Build outputs should be traceable to:
+
+```text
+source revision
+dependency resolution
+build environment
+build process
+```
+
+where the operational risk justifies it.
+
+---
+
+# 112. SBOM
+
+Generate a Software Bill of Materials where operational, customer, regulatory, or incident-response requirements justify it.
+
+An SBOM should enable identification of affected deployed components during vulnerability response.
+
+Do not generate an SBOM nobody can associate with actual deployments.
+
+---
+
+# 113. Auditable Binaries
+
+For deployed Rust executables, consider embedding dependency information when it materially improves operational vulnerability analysis.
+
+Tools such as `cargo-auditable` can support this model.
+
+The decision should align with artifact and deployment strategy.
+
+---
+
+# 114. Build Provenance
+
+For higher-assurance pipelines, consider signed build provenance based on established supply-chain frameworks such as SLSA.
+
+The objective is to establish:
+
+```text
+what source produced the artifact
+what build system produced it
+which inputs were involved
+whether provenance can be verified
+```
+
+Do not introduce sophisticated provenance infrastructure without an operational consumer.
+
+---
+
+# 115. Reproducible Builds
+
+Strive for deterministic build inputs.
+
+Pin:
+
+```text
+Rust toolchain
+dependency resolution
+build configuration
+base images where applicable
+```
+
+according to project needs.
+
+Do not fetch uncontrolled mutable dependencies during production builds.
+
+---
+
+# 116. Build Environment
+
+Production artifacts should be built in a controlled environment.
+
+Do not rely on undocumented developer-machine state.
+
+CI/CD should represent the canonical release build path.
+
+---
+
+# 117. CI Secrets
+
+CI secrets must be available only to jobs that require them.
+
+Do not expose production credentials to:
+
+```text
+untrusted pull requests
+ordinary test jobs
+build steps that do not need them
+```
+
+Minimize secret scope and lifetime.
+
+---
+
+# 118. Untrusted Pull Requests
+
+Treat pull-request code as potentially hostile in CI.
+
+Do not execute untrusted repository code with privileged secrets merely to run tests.
+
+This includes:
+
+```text
+build.rs
+procedural macros
+test code
+scripts
+package hooks
+```
+
+---
+
+# 119. CI Permissions
+
+CI workflow tokens should receive the minimum permissions required.
+
+Do not grant repository write/admin/package permissions globally when jobs require only read access.
+
+---
+
+# 120. CI Actions and External Build Tools
+
+Third-party CI actions execute code in the build environment.
+
+Treat them as dependencies.
+
+Prefer well-maintained trusted actions.
+
+Where supply-chain policy requires stronger integrity, pin immutable revisions rather than mutable tags.
+
+---
+
+# 121. Build Artifact Integrity
+
+Release artifacts should be identifiable and protected against unauthorized modification.
+
+Where required, use:
+
+```text
+checksums
+signatures
+attestations
+artifact repository controls
+```
+
+according to deployment architecture.
+
+---
+
+# 122. Container Security
+
+When deploying containers:
+
+* use minimal images
+* avoid unnecessary packages
+* avoid compilers/toolchains in runtime images
+* run as non-root where practical
+* expose only required ports
+* avoid embedding secrets
+* keep base images updated
+
+Multi-stage builds are preferred for compiled Rust services.
+
+---
+
+# 123. Runtime Container
+
+The runtime container should normally contain only what the service requires.
+
+Avoid shipping:
+
+```text
+Cargo
+Rust compiler
+source repository
+build caches
+shell utilities without need
+development tooling
+```
+
+Minimize attack surface.
+
+---
+
+# 124. Root Privileges
+
+Do not run the application as root unless genuinely required.
+
+Use dedicated runtime users where practical.
+
+---
+
+# 125. Filesystem Permissions
+
+Runtime filesystem access should be restricted.
+
+Use read-only filesystem semantics where practical.
+
+Provide writable paths only where application behavior requires them.
+
+---
+
+# 126. Network Exposure
+
+Expose only required network interfaces and ports.
+
+Do not bind administrative/debug endpoints publicly by accident.
+
+---
+
+# 127. Debug Endpoints
+
+Development/debug endpoints must not become unintentionally available in production.
+
+Examples:
+
+```text
+profilers
+debug dumps
+internal configuration
+test endpoints
+development authentication bypasses
+```
+
+Production configuration should fail safely.
+
+---
+
+# 128. Development Security Bypasses
+
+Avoid constructs such as:
+
+```rust
+if dev_mode {
+    skip_authentication()
+}
+```
+
+when they can accidentally reach production.
+
+Development conveniences must have strong environmental boundaries.
+
+---
+
+# 129. Configuration
+
+Security-sensitive configuration must be typed and validated at startup.
+
+Do not silently fall back to insecure defaults.
+
+Example:
+
+```text
+missing authentication issuer
+```
+
+should normally prevent secure production startup rather than disable authentication.
+
+---
+
+# 130. Fail Closed
+
+If security configuration cannot be loaded or validated, prefer denying access or failing startup.
+
+Do not silently downgrade:
+
+```text
+TLS
+authentication
+authorization
+signature verification
+```
+
+to insecure behavior.
+
+---
+
+# 131. Default Configuration
+
+Production defaults should be safe.
+
+Avoid defaults such as:
+
+```text
+CORS *
+authentication disabled
+unlimited body sizes
+debug logging of payloads
+infinite timeouts
+```
+
+Developers should need explicit configuration to weaken security, not to enable it.
+
+---
+
+# 132. Environment Separation
+
+Development, test, staging, and production environments should have separate credentials and security configuration.
+
+Do not reuse production secrets in development or test.
+
+---
+
+# 133. Dependency Failure
+
+External service failure must not accidentally bypass security.
+
+Example:
+
+```text
+authorization service unavailable
+```
+
+must not automatically mean:
+
+```text
+allow request
+```
+
+unless explicitly required by a carefully designed availability model.
+
+Prefer fail-closed for authorization decisions.
+
+---
+
+# 134. Cache Security
+
+Caching authorization or identity information requires explicit semantics.
+
+Define:
+
+```text
+cache lifetime
+revocation behavior
+tenant scope
+key scope
+staleness tolerance
+```
+
+Do not cache privileged decisions indefinitely.
+
+---
+
+# 135. Security-Sensitive Caching
+
+Never construct cache keys that can collide across security principals or tenants.
+
+Security context must be part of cache identity where relevant.
+
+---
+
+# 136. Idempotency Security
+
+Idempotency keys should be scoped to the appropriate identity.
+
+One user must not be able to discover or reuse another user's idempotency result improperly.
+
+Treat stored idempotency responses according to the sensitivity of their content.
+
+---
+
+# 137. Web/API Inventory
+
+Production APIs should have an identifiable inventory.
+
+Deprecated and unused endpoints increase attack surface.
+
+Remove obsolete:
+
+```text
+routes
+API versions
+debug APIs
+legacy authentication paths
+```
+
+when they are no longer required.
+
+---
+
+# 138. API Documentation
+
+Security-relevant API requirements should be represented in OpenAPI or equivalent contracts where appropriate.
+
+Examples:
+
+```text
+authentication
+required scopes
+request limits
+security-relevant error semantics
+```
+
+Do not let deployed behavior diverge silently from documented API security.
+
+---
+
+# 139. Error Enumeration
+
+Review APIs for information disclosure through different status codes or error messages.
+
+Do not collapse meaningful API semantics indiscriminately, but recognize where detailed distinctions enable enumeration attacks.
+
+---
+
+# 140. Health Endpoints
+
+Health endpoints should reveal only necessary operational information.
+
+Do not expose:
+
+```text
+credentials
+configuration
+internal topology
+software secrets
+full dependency URLs
+stack traces
+```
+
+through public health/status endpoints.
+
+---
+
+# 141. Metrics Endpoints
+
+Metrics may expose sensitive operational information.
+
+Protect them according to deployment architecture.
+
+Do not automatically expose metrics publicly.
+
+---
+
+# 142. Trace Endpoints
+
+Profiling, trace inspection, and diagnostics endpoints require explicit access control.
+
+They may expose application internals or sensitive values.
+
+---
+
+# 143. Backup Security
+
+Database backups contain production data.
+
+Treat backup access, encryption, retention, and restore operations as part of the security architecture.
+
+Application security is incomplete if backups are broadly accessible.
+
+---
+
+# 144. Data Retention
+
+Do not retain sensitive data indefinitely without purpose.
+
+Deletion requirements should propagate where applicable to:
+
+```text
+primary data
+derived data
+exports
+caches
+logs
+backups according to policy
+```
+
+---
+
+# 145. Security Tests
+
+Add automated tests for security-critical behavior.
+
+Examples:
+
+```text
+authentication rejection
+authorization boundaries
+tenant isolation
+mass assignment
+SQL injection resistance
+SSRF policy
+request limits
+secret redaction
+path traversal
+invalid token claims
+```
+
+Test negative behavior explicitly.
+
+---
+
+# 146. Authorization Regression Tests
+
+Every discovered authorization defect should receive regression coverage where practical.
+
+Authorization bugs have high recurrence risk.
+
+---
+
+# 147. Fuzzing
+
+Use fuzz testing where attacker-controlled complex input reaches custom parsers or protocol logic.
+
+Potential targets:
+
+```text
+custom parsers
+filter languages
+binary protocols
+file formats
+complex converters
+```
+
+Do not fuzz ordinary library functionality without a concrete reason.
+
+---
+
+# 148. Property-Based Security Testing
+
+Property tests can verify invariants such as:
+
+```text
+unauthorized principal never gains protected state
+parser never panics for arbitrary input
+round-trip cannot create invalid state
+tenant A data never appears for tenant B
+```
+
+where the model is practical.
+
+---
+
+# 149. Resource-Limit Tests
+
+Test configured security limits.
+
+Examples:
+
+```text
+body too large
+page size too large
+too many filters
+upload too large
+rate limit exceeded
+```
+
+A configured limit that is never tested is vulnerable to accidental removal.
+
+---
+
+# 150. Secret Leakage Tests
+
+Where practical, test that sensitive values do not appear in:
+
+```text
+Debug
+errors
+API responses
+structured logs
+```
+
+especially for dedicated secret types.
+
+---
+
+# 151. Static Analysis
+
+Use compiler and lint tooling as part of security defense.
+
+At minimum:
+
+```bash
+cargo check
+cargo clippy -- -D warnings
+```
+
+Do not treat compiler warnings as security findings automatically, but do not suppress them casually.
+
+---
+
+# 152. Security Tooling
+
+A normal Rust security pipeline should consider:
+
+```bash
+cargo audit
+cargo deny check
+```
+
+in addition to normal quality verification.
+
+The exact tooling may evolve.
+
+The security requirement is more important than a particular tool.
+
+---
+
+# 153. Suggested Security CI Gate
+
+Where the project adopts the tooling, a security-oriented CI sequence may include:
+
+```bash
+cargo fmt --check
+cargo check --workspace --all-targets
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo audit
+cargo deny check
+```
+
+Add SQLx verification and other repository-specific gates separately.
+
+Do not blindly enable unsupported feature combinations.
+
+---
+
+# 154. Continuous Vulnerability Monitoring
+
+Dependency vulnerabilities can appear after code has been merged.
+
+Therefore vulnerability checks must not occur only during pull requests.
+
+Run scheduled advisory scanning or equivalent dependency monitoring.
+
+---
+
+# 155. Vulnerability Severity
+
+Do not use severity score alone to determine remediation priority.
+
+Evaluate:
+
+```text
+affected code path
+exploitability
+network exposure
+available mitigations
+data sensitivity
+privilege impact
+deployed versions
+```
+
+A high-scoring vulnerability in unreachable code and a lower-scoring exploitable authentication issue may require different priorities.
+
+---
+
+# 156. Vulnerability Remediation
+
+When a relevant vulnerability is identified:
+
+1. determine whether deployed versions are affected
+2. identify exploitability
+3. identify available fixed versions
+4. evaluate upgrade impact
+5. apply mitigation or update
+6. test
+7. deploy
+8. verify affected artifacts
+9. document accepted residual risk if unresolved
+
+Do not merely update the advisory suppression list.
+
+---
+
+# 157. Incident Readiness
+
+Security architecture should support investigation.
+
+Maintain sufficient evidence to answer:
+
+```text
+what happened?
+when?
+which principal?
+which resource?
+which deployed version?
+which request?
+which dependencies?
+```
+
+without logging unnecessary sensitive data.
+
+---
+
+# 158. Audit Events
+
+Security-significant events may require explicit audit logging.
+
+Examples:
+
+```text
+authentication failures
+permission changes
+administrative operations
+security configuration changes
+credential lifecycle events
+sensitive exports
+```
+
+Audit logs and ordinary diagnostic logs serve different purposes.
+
+---
+
+# 159. Audit Log Integrity
+
+Where audit logs carry compliance/security meaning, restrict who can modify or delete them.
+
+Do not store critical audit history solely in mutable local application logs.
+
+---
+
+# 160. Dependency Inventory
+
+During incidents, the organization must be able to determine which deployed artifacts contain an affected dependency.
+
+Maintain enough connection between:
+
+```text
+source revision
+Cargo.lock
+artifact
+deployment
+```
+
+to answer that question.
+
+---
+
+# 161. Key Compromise
+
+Design security-sensitive credentials so compromise can be contained.
+
+Understand:
+
+```text
+how to revoke
+how to rotate
+which systems use the key
+which data is affected
+```
+
+Avoid one credential with unnecessary access to all environments and systems.
+
+---
+
+# 162. Security Comments
+
+Comment security-sensitive reasoning when it is not obvious.
+
+Useful comments explain:
+
+```text
+why a URL allowlist exists
+why a field is intentionally excluded
+why authorization occurs twice
+why a cryptographic parameter is required
+why forwarded headers are trusted
+why a dependency exception exists
+```
+
+Do not write generic comments such as:
+
+```text
+// Security check
+```
+
+without explaining the invariant.
+
+---
+
+# 163. Security Documentation
+
+Significant security decisions should be recorded in ADRs or architecture documentation.
+
+Examples:
+
+```text
+authentication architecture
+authorization model
+tenant isolation
+secret management
+token validation
+SSRF policy
+dependency policy
+CI trust model
+audit strategy
+```
+
+Do not leave critical security assumptions discoverable only through source-code archaeology.
+
+---
+
+# 164. Security Exceptions
+
+A security rule may be overridden only with explicit reasoning.
+
+Document:
+
+```text
+rule being overridden
+reason
+risk
+mitigation
+owner
+review/expiry condition
+```
+
+Do not create silent exceptions.
+
+---
+
+# 165. No Security Theater
+
+Do not add security mechanisms merely because they look secure.
+
+Examples:
+
+```text
+encrypting non-sensitive internal IDs without threat model
+hashing values that require confidentiality
+custom obfuscation
+arbitrary password complexity rules
+duplicative scanners with no operational owner
+```
+
+Controls must address a real threat.
+
+---
+
+# 166. No Custom Security Protocols
+
+Do not invent proprietary:
+
+```text
+authentication protocols
+encryption schemes
+token formats
+signature algorithms
+password hashing
+```
+
+when established protocols and libraries exist.
+
+Security novelty requires exceptional justification.
+
+---
+
+# 167. Avoid Security Through Obscurity
+
+Unpredictable IDs, hidden routes, and undocumented APIs may reduce incidental discovery.
+
+They are not substitutes for authorization.
+
+Assume attackers can discover endpoint structure and identifiers.
+
+---
+
+# 168. Minimal Attack Surface
+
+Remove unused:
+
+```text
+dependencies
+routes
+features
+ports
+services
+admin interfaces
+protocol support
+permissions
+```
+
+Attack surface that does not exist cannot be exploited.
+
+---
+
+# 169. Review Security When Requirements Change
+
+A previously safe design may become unsafe when:
+
+```text
+endpoint becomes public
+multi-tenancy is introduced
+new data becomes sensitive
+new external integration is added
+write access is added
+traffic increases
+```
+
+Reevaluate security assumptions when system context changes.
+
+---
+
+# 170. Security Review Checklist
+
+Before considering security-sensitive work complete, inspect for:
+
+* missing authentication
+* missing authorization
+* missing object-level authorization
+* mass assignment
+* cross-tenant access
+* insecure defaults
+* excessive privileges
+* secret exposure
+* sensitive logging
+* raw internal errors
+* SQL injection
+* command injection
+* path traversal
+* SSRF
+* unsafe redirects
+* unrestricted uploads
+* unbounded bodies
+* unbounded queries
+* unrestricted resource consumption
+* weak token validation
+* insecure cookie behavior
+* CSRF where relevant
+* permissive CORS
+* untrusted forwarded headers
+* unsafe external API consumption
+* weak TLS handling
+* custom cryptography
+* predictable tokens
+* unnecessary unsafe Rust
+* vulnerable dependencies
+* unreviewed dependency additions
+* uncontrolled dependency sources
+* stale advisory exceptions
+* CI secret exposure
+* excessive CI permissions
+* mutable build dependencies
+* insecure runtime containers
+* debug endpoints
+* missing negative security tests
+* missing vulnerability-monitoring process
+
+---
+
+# 171. Prohibited Default Shortcuts
+
+Do not solve security problems by defaulting to:
+
+```text
+frontend-only authorization
+hidden IDs as access control
+trusting internal APIs automatically
+decoding JWT without full verification
+wildcard CORS
+disabling TLS validation
+raw SQL construction
+shell command construction
+user-controlled filesystem paths
+unrestricted outbound URLs
+logging complete request payloads
+logging tokens
+hardcoded secrets
+production credentials in CI tests
+application DB superuser
+unbounded request bodies
+unbounded bulk operations
+security by obscurity
+custom cryptography
+permanent vulnerability ignores
+automatic dependency upgrades without review
+privileged CI tokens everywhere
+root containers without need
+```
+
+Exceptions require a concrete security reason and documented risk.
+
+---
+
+# 172. Definition of Done
+
+Security-sensitive work is complete only when:
+
+1. Trust boundaries are understood.
+2. Untrusted input is identified.
+3. Authentication requirements are correctly enforced.
+4. Authorization is enforced at the correct resource/function/property level.
+5. Tenant isolation remains intact where applicable.
+6. Sensitive data exposure has been considered.
+7. Inputs and resource consumption are bounded appropriately.
+8. SQL and command injection risks are structurally prevented.
+9. SSRF and path traversal are addressed where applicable.
+10. Secrets are not committed or logged.
+11. External errors do not expose internals.
+12. Cryptographic functionality uses established implementations.
+13. Runtime privileges are minimal.
+14. Dependencies are necessary and reviewed appropriately.
+15. Known dependency advisories have been checked.
+16. Dependency source/license policy passes where configured.
+17. Vulnerability exceptions are explicit rather than silent.
+18. CI secrets and permissions follow least privilege.
+19. Build artifacts can be related back to source/dependencies sufficiently for operational needs.
+20. Security-relevant negative tests exist.
+21. No insecure development bypass can accidentally become a production default.
+22. Relevant security and quality CI gates pass.
+23. Security assumptions are documented when non-obvious.
+24. No known material security risk is hidden for implementation convenience.
+
+When choosing between permissive behavior and denying an ambiguous security-sensitive operation, fail closed.
+
+When choosing between custom security code and a mature established implementation, use the established implementation.
+
+When choosing between broader privileges and explicit required privileges, use least privilege.
+
+When choosing between more dependency functionality and a smaller attack surface, enable only what is required.
+
+When choosing between trusting external data and validating it, validate it.
+
+Security is complete only when the system remains secure under hostile input, partial failure, compromised assumptions, and operational change — not merely when the normal workflow succeeds.

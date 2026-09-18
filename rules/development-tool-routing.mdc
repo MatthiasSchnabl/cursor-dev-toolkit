@@ -41,4 +41,6 @@ Persistence with SQLx and PostgreSQL follows `rust-sqlx-engineering-standard.mdc
 
 Testing and quality follow `testing-quality-engineering-standard.mdc`. Test behavior and invariants, not coverage percentage. Use the lowest layer that reliably proves the behavior.
 
+Security and supply chain follow `security-supply-chain-engineering-standard.mdc`. Least privilege, fail closed; secrets must not be logged or committed.
+
 Project-specific rules in `AGENTS.md` take precedence over this global routing.
