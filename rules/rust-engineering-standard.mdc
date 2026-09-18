@@ -1,0 +1,1063 @@
+---
+description: Production-grade Rust engineering standard — correctness, safety, and maintainability over cleverness
+globs: "**/*.rs,**/Cargo.toml,**/rust-toolchain.toml,**/.cargo/**"
+alwaysApply: false
+---
+
+# Rust Engineering Standard
+
+These instructions are mandatory for all Rust code created, modified, reviewed, or refactored in this repository.
+
+The goal is production-grade Rust that is:
+
+* correct
+* memory-safe
+* type-safe
+* idiomatic
+* allocation-conscious
+* performant
+* maintainable
+* testable
+* understandable by humans and coding agents
+
+Do not optimize for shortest code.
+Do not optimize for cleverness.
+Optimize for correctness, explicit invariants, maintainability, and measured performance.
+
+---
+
+# 1. Priority Order
+
+When engineering decisions conflict, use this order:
+
+1. Correctness
+2. Memory and concurrency safety
+3. Explicit domain invariants and type safety
+4. Maintainability and readability
+5. API clarity
+6. Resource efficiency
+7. Measured runtime performance
+8. Code size / micro-optimization
+
+Never sacrifice correctness or maintainability for hypothetical performance.
+
+Performance-sensitive deviations are allowed only when the trade-off is understood and preferably measured.
+
+---
+
+# 2. General Rust Philosophy
+
+Write idiomatic Rust.
+
+Prefer Rust's type system, ownership model, enums, traits, pattern matching, iterators, and standard abstractions instead of recreating patterns from Java, C++, JavaScript, or other languages.
+
+Prefer designs that make invalid states impossible or difficult to represent.
+
+Prefer compile-time guarantees over runtime checks when practical.
+
+Prefer explicit types and domain concepts over primitive obsession.
+
+Prefer:
+
+* enums over boolean/state combinations
+* newtypes over semantically ambiguous primitives
+* `Option<T>` over sentinel values
+* `Result<T, E>` over error flags
+* `NonZero*` types where zero is invalid
+* domain-specific IDs over raw `String`, `i64`, or UUID values passed everywhere
+* exhaustive `match` where domain states matter
+* constructors that establish invariants
+
+Example:
+
+```rust
+struct CustomerId(Uuid);
+struct OrderId(Uuid);
+```
+
+is preferred over passing arbitrary `Uuid` values throughout the domain.
+
+Do not bypass the type system merely to reduce code.
+
+---
+
+# 3. Ownership and Borrowing
+
+Treat ownership as an architectural tool, not merely a compiler constraint.
+
+Prefer borrowing when ownership is unnecessary.
+
+Prefer:
+
+```rust
+&str
+&[T]
+&T
+&mut T
+```
+
+when the function only needs access to existing data.
+
+Take ownership when the function genuinely needs to store, consume, transform, or transfer ownership of the value.
+
+Do not take ownership only to immediately borrow the value.
+
+Do not clone values simply to satisfy the borrow checker.
+
+Before adding `.clone()`, determine why ownership is required.
+
+A clone is acceptable when:
+
+* ownership duplication is semantically required
+* the value is intentionally crossing an ownership boundary
+* avoiding it would create disproportionately complex code
+* performance impact is irrelevant or measured
+* the clone makes an API materially safer or clearer
+
+Unexplained clones in hot paths or large structures are considered suspicious.
+
+Never use `.to_owned()`, `.to_string()`, `.clone()`, `Vec::from`, or similar conversions without considering whether borrowing can be preserved.
+
+---
+
+# 4. Allocation and Memory Efficiency
+
+Avoid unnecessary heap allocations.
+
+Prefer reuse and borrowing over allocating intermediate structures.
+
+Avoid patterns such as:
+
+```rust
+data.iter()
+    .map(...)
+    .collect::<Vec<_>>()
+    .iter()
+    .map(...)
+```
+
+when the operations can be streamed through one iterator chain.
+
+Do not `collect()` unless a materialized collection is actually required.
+
+When the expected collection size is known or cheaply predictable, consider:
+
+```rust
+Vec::with_capacity(...)
+String::with_capacity(...)
+HashMap::with_capacity(...)
+```
+
+Do not estimate capacities arbitrarily.
+
+Avoid temporary `String` allocations when `&str` is sufficient.
+
+Avoid converting repeatedly between:
+
+```text
+String
+&str
+Vec<u8>
+&[u8]
+```
+
+unless required by an API or boundary.
+
+Use `Cow<'_, T>` only when a meaningful borrow-or-own use case exists. Do not introduce `Cow` merely to appear allocation-efficient.
+
+Avoid unnecessary `Box`, `Rc`, and `Arc`.
+
+Use:
+
+* `Box<T>` when heap allocation, indirection, trait objects, or recursive data requires it
+* `Rc<T>` for intentional single-thread shared ownership
+* `Arc<T>` for intentional thread-safe shared ownership
+
+Do not use shared ownership when ordinary ownership or borrowing is sufficient.
+
+---
+
+# 5. Type-Driven Design
+
+Use the type system aggressively where it improves correctness.
+
+Represent domain states explicitly.
+
+Bad:
+
+```rust
+struct Order {
+    paid: bool,
+    cancelled: bool,
+    shipped: bool,
+}
+```
+
+Prefer a domain model such as:
+
+```rust
+enum OrderStatus {
+    Created,
+    Paid,
+    Shipped,
+    Cancelled,
+}
+```
+
+when those states are mutually exclusive.
+
+Use newtypes to distinguish values that share the same underlying representation but have different semantics.
+
+Use `TryFrom` for validated conversions.
+
+Use `From` only for infallible conversions.
+
+Prefer standard traits such as:
+
+* `From`
+* `TryFrom`
+* `AsRef`
+* `AsMut`
+* `Borrow`
+* `IntoIterator`
+* `Display`
+* `FromStr`
+
+rather than custom conversion APIs when the standard trait expresses the operation correctly.
+
+Do not implement `Into` when implementing `From` is sufficient.
+
+Keep invariants inside constructors and types instead of spreading validation across call sites.
+
+---
+
+# 6. Error Handling
+
+Expected failure is represented with `Result` or `Option`, not panic.
+
+Production code must not use `unwrap()` or `expect()` for expected runtime conditions.
+
+`unwrap()` or `expect()` is acceptable only when:
+
+* the invariant is structurally guaranteed
+* failure would indicate a programmer bug
+* the reason is obvious or documented
+
+Prefer meaningful typed errors.
+
+Avoid stringly typed error propagation where structured error information is useful.
+
+Preserve error sources when wrapping errors.
+
+Add context at architectural boundaries where it improves diagnosis.
+
+Do not silently discard errors.
+
+Do not convert a specific error into a generic error too early.
+
+Errors exposed across API or subsystem boundaries should have intentional semantics.
+
+---
+
+# 7. Panic Policy
+
+Do not use panics for normal control flow.
+
+Panics should normally indicate:
+
+* violated internal invariants
+* impossible states
+* programmer defects
+
+Externally supplied data must never be assumed valid.
+
+Validate input at boundaries.
+
+Examples include:
+
+* HTTP input
+* database input
+* files
+* environment variables
+* external APIs
+* queues
+* serialized data
+* user input
+
+---
+
+# 8. Unsafe Rust
+
+Safe Rust is the default.
+
+Do not introduce `unsafe` unless safe Rust cannot reasonably satisfy the requirement.
+
+Every `unsafe` block must have a preceding `SAFETY:` comment explaining the invariants that make the operation sound.
+
+Example:
+
+```rust
+// SAFETY:
+// `ptr` originates from `Vec<T>` and remains valid for the complete
+// lifetime of this operation. No mutable alias exists while the
+// shared reference is active.
+unsafe {
+    ...
+}
+```
+
+Unsafe code must have a clearly defined safety boundary.
+
+Keep unsafe blocks as small as possible.
+
+Do not spread unsafe assumptions through ordinary application code.
+
+When unsafe code is modified, specifically test the relevant invariants.
+
+Use tools such as Miri where applicable.
+
+---
+
+# 9. Concurrency
+
+Prefer ownership transfer over shared mutable state.
+
+Shared state must have an explicit reason.
+
+Choose synchronization primitives based on semantics, not convenience.
+
+Keep critical sections small.
+
+Never perform expensive or unrelated work while holding a lock.
+
+In async code, do not hold a synchronous lock across `.await`.
+
+Avoid holding any lock across `.await` unless the design explicitly requires it and the consequences are understood.
+
+Prevent lock-order ambiguity.
+
+Do not introduce `Arc<Mutex<...>>` as the automatic solution to ownership problems.
+
+Consider whether:
+
+* ownership transfer
+* channels
+* actor-style processing
+* immutable shared state
+
+would create a simpler design.
+
+---
+
+# 10. Async Rust
+
+Use async only for genuinely asynchronous or concurrency-oriented workloads.
+
+Do not perform blocking I/O or long-running CPU work directly on an async executor thread.
+
+Move blocking work to an appropriate blocking mechanism or worker.
+
+Avoid unnecessary task spawning.
+
+Each spawned task should have:
+
+* a clear owner
+* an understood lifetime
+* defined error handling
+* defined cancellation behavior where relevant
+
+Do not create detached background tasks accidentally.
+
+Avoid excessive cloning of state merely to move values into async closures.
+
+---
+
+# 11. Performance
+
+Performance work must be evidence-driven.
+
+Do not claim that implementation A is faster than implementation B without evidence or a well-established complexity difference.
+
+Before significant optimization:
+
+1. identify the relevant workload
+2. establish a baseline
+3. identify the bottleneck
+4. optimize the bottleneck
+5. measure again
+
+Prioritize algorithmic improvements over micro-optimizations.
+
+Consider:
+
+* algorithmic complexity
+* database round trips
+* network round trips
+* serialization cost
+* allocation rate
+* copying
+* lock contention
+* cache behavior
+* unnecessary I/O
+
+before optimizing individual instructions.
+
+Do not introduce specialized crates or unsafe code for hypothetical performance gains.
+
+Avoid unnecessary intermediate allocations and copies as part of normal engineering; this does not require benchmarking.
+
+For genuinely performance-critical code, prefer benchmarks and profiling over intuition.
+
+---
+
+# 12. Zero-Cost Abstractions
+
+Use Rust abstractions when they provide clarity without meaningful runtime cost.
+
+Prefer:
+
+* iterators
+* enums
+* generics
+* traits
+* pattern matching
+
+when appropriate.
+
+Do not manually rewrite idiomatic abstractions into lower-level loops unless measurement demonstrates a meaningful benefit.
+
+Static dispatch is generally appropriate where specialization and performance matter.
+
+Dynamic dispatch via `dyn Trait` is appropriate when runtime polymorphism, code-size control, plugin architecture, or interface decoupling justifies it.
+
+Do not assume generics are always faster overall; excessive monomorphization can increase binary size and instruction-cache pressure.
+
+---
+
+# 13. DRY and Abstraction
+
+Follow DRY for knowledge and business rules, not mechanically for every repeated line.
+
+Do not duplicate:
+
+* business rules
+* validation rules
+* protocol definitions
+* domain transformations
+* error mappings
+* important constants
+* architectural policy
+
+But do not create premature abstractions solely because two code fragments currently look similar.
+
+A small amount of local duplication is preferable to the wrong abstraction.
+
+Abstract when there is a stable shared concept.
+
+Prefer semantic cohesion over syntactic deduplication.
+
+Avoid utility modules that become unrelated collections of helper functions.
+
+Keep functionality close to the domain that owns it.
+
+---
+
+# 14. Functions and Modules
+
+Functions should have one coherent responsibility.
+
+A function may be long when the logic is inherently sequential and splitting it would reduce clarity.
+
+Do not split functions merely to satisfy arbitrary line-count limits.
+
+Extract functions when doing so:
+
+* creates a meaningful abstraction
+* isolates complexity
+* enables testing
+* removes meaningful duplication
+* improves readability
+* isolates side effects
+
+Modules should have clear responsibilities and boundaries.
+
+Avoid circular conceptual dependencies.
+
+Keep domain logic independent from transport and infrastructure details whenever practical.
+
+---
+
+# 15. API Design
+
+Public APIs require particular care because they create long-term coupling.
+
+Prefer minimal, composable APIs.
+
+Expose the smallest surface necessary.
+
+Avoid leaking implementation details.
+
+Use Rust naming conventions consistently.
+
+Use:
+
+```text
+as_*   borrowed -> borrowed / cheap view
+to_*   conversion that creates or transforms a value
+into_* consuming conversion
+```
+
+where applicable.
+
+Use common Rust traits where ecosystem conventions exist.
+
+Do not create custom abstractions when the standard library already expresses the same concept clearly.
+
+---
+
+# 16. Visibility
+
+Use the narrowest reasonable visibility.
+
+Prefer private items by default.
+
+Promote to:
+
+```rust
+pub(crate)
+```
+
+or:
+
+```rust
+pub
+```
+
+only when required by an actual architectural boundary.
+
+Do not expose fields publicly simply to make access convenient.
+
+Preserve invariants through constructors and methods where appropriate.
+
+---
+
+# 17. Dependencies
+
+Every dependency has a maintenance, security, compile-time, binary-size, and supply-chain cost.
+
+Do not add a crate for functionality that can be implemented clearly and safely with a small amount of standard-library code.
+
+Conversely, do not reimplement mature security-sensitive or technically complex functionality merely to avoid a dependency.
+
+Before adding a dependency, consider:
+
+* maintenance status
+* ecosystem adoption
+* API stability
+* transitive dependencies
+* security implications
+* binary impact
+* compile-time impact
+* whether the repository already has an equivalent dependency
+
+Reuse existing dependencies where appropriate.
+
+Do not introduce competing libraries for the same concern without justification.
+
+---
+
+# 18. Comments and Documentation
+
+Write comments for reasoning, invariants, constraints, contracts, and non-obvious behavior.
+
+Do not narrate obvious syntax.
+
+Bad:
+
+```rust
+// Increment counter
+counter += 1;
+```
+
+Good:
+
+```rust
+// Sequence numbers are persisted externally and must remain strictly
+// monotonic across retries. Reusing a number would violate idempotency.
+counter += 1;
+```
+
+Comments should explain primarily:
+
+* why the code exists
+* why this implementation was chosen
+* invariants that must remain true
+* ownership assumptions
+* concurrency assumptions
+* performance-sensitive decisions
+* surprising edge cases
+* compatibility constraints
+* security constraints
+* intentionally rejected alternatives
+
+Comments should help both human developers and coding agents reconstruct the design intent.
+
+Do not add comments merely to increase documentation density.
+
+Keep comments synchronized with code.
+
+Stale comments are worse than missing comments.
+
+---
+
+# 19. Rustdoc
+
+Document important public APIs using Rustdoc.
+
+Public documentation should describe where relevant:
+
+* purpose
+* inputs
+* outputs
+* invariants
+* errors
+* side effects
+* ownership behavior
+* concurrency behavior
+
+Use conventional sections where useful:
+
+```rust
+/// ...
+///
+/// # Errors
+///
+/// ...
+///
+/// # Panics
+///
+/// ...
+///
+/// # Safety
+///
+/// ...
+///
+/// # Examples
+///
+/// ...
+```
+
+Do not add empty boilerplate sections.
+
+Use module-level `//!` documentation for modules with significant architectural responsibility.
+
+Examples should explain meaningful usage, not trivial syntax.
+
+---
+
+# 20. LLM / Agent Maintainability
+
+Code must be easy for another coding agent to understand without reconstructing hidden assumptions.
+
+Make important concepts explicit through:
+
+* descriptive type names
+* clear module names
+* typed domain boundaries
+* rustdoc
+* focused comments
+* explicit error types
+* tests documenting behavior
+
+Prefer domain terminology consistently throughout:
+
+```text
+type names
+function names
+database concepts
+API concepts
+tests
+documentation
+```
+
+Do not use multiple names for the same domain concept without reason.
+
+Important architectural workarounds or non-obvious decisions should reference an ADR, issue, specification, or comment explaining the rationale when available.
+
+Avoid implicit conventions that exist only in a developer's head.
+
+---
+
+# 21. Naming
+
+Follow standard Rust naming conventions.
+
+Names should describe semantics, not implementation mechanics.
+
+Prefer:
+
+```rust
+load_customer()
+```
+
+over:
+
+```rust
+do_query()
+```
+
+Prefer:
+
+```rust
+pending_orders
+```
+
+over:
+
+```rust
+data2
+```
+
+Avoid meaningless names such as:
+
+```text
+manager
+helper
+utils
+processor
+handler
+data
+thing
+misc
+```
+
+unless they accurately represent a well-defined architectural concept.
+
+Boolean names should normally express predicates:
+
+```rust
+is_valid
+has_permission
+should_retry
+```
+
+---
+
+# 22. Iterators and Collections
+
+Prefer iterator-based transformations when they improve clarity.
+
+Avoid unnecessary intermediate collections.
+
+Use the collection that matches semantics.
+
+Do not choose `HashMap`, `BTreeMap`, `Vec`, `VecDeque`, or another structure solely from habit.
+
+Consider:
+
+* access pattern
+* ordering requirements
+* mutation pattern
+* expected size
+* memory overhead
+* complexity guarantees
+
+Use entry APIs when they avoid redundant lookups.
+
+Do not sort collections repeatedly when order can be maintained or sorting can occur once.
+
+---
+
+# 23. Serialization and External Boundaries
+
+Treat serialization formats as contracts.
+
+Separate external representation from domain representation when their requirements differ materially.
+
+Do not weaken the domain model merely to make serialization easier.
+
+Validate untrusted deserialized data before converting it into trusted domain types.
+
+Avoid silently accepting unknown or invalid states unless compatibility requirements explicitly require it.
+
+Schema evolution must be considered for persisted or externally consumed formats.
+
+---
+
+# 24. Database Code
+
+Do not leak database representation unnecessarily into domain logic.
+
+Minimize database round trips.
+
+Avoid N+1 query patterns.
+
+Use transactions when operations must be atomic.
+
+Keep transaction scope as small as correctness permits.
+
+Do not hold transactions open during unrelated network operations.
+
+Use database constraints for invariants that the database must guarantee globally.
+
+Application validation does not replace appropriate database constraints.
+
+Handle concurrent modifications deliberately.
+
+---
+
+# 25. Security
+
+Validate data at trust boundaries.
+
+Avoid logging:
+
+* secrets
+* credentials
+* authentication tokens
+* sensitive personal information
+* complete confidential payloads
+
+Use established cryptographic and authentication libraries.
+
+Never implement custom cryptography.
+
+Avoid string construction for SQL or other injection-sensitive protocols when parameterized APIs exist.
+
+Treat integer conversions, indexing, parsing, and deserialization as potentially fallible operations.
+
+---
+
+# 26. Tests
+
+Tests should verify behavior and invariants, not implementation trivia.
+
+Prefer a balanced test structure:
+
+* focused unit tests for pure domain logic
+* integration tests for subsystem boundaries
+* contract tests for external interfaces where relevant
+* regression tests for discovered defects
+
+Every bug fix should normally include a regression test when practical.
+
+Tests must cover important error paths, not only happy paths.
+
+Use property-based testing when a domain has broad invariant spaces and it materially improves coverage.
+
+Avoid tests that merely duplicate the implementation line by line.
+
+Test names should describe behavior.
+
+Example:
+
+```rust
+#[test]
+fn rejects_order_when_currency_does_not_match_account() {
+    ...
+}
+```
+
+---
+
+# 27. Determinism
+
+Prefer deterministic behavior and deterministic tests.
+
+Do not rely unnecessarily on:
+
+* wall-clock timing
+* random ordering
+* thread scheduling
+* external network services
+
+Inject time, randomness, IDs, or external dependencies when deterministic testing materially benefits from it.
+
+---
+
+# 28. Refactoring
+
+When modifying existing code:
+
+1. understand existing behavior first
+2. identify the smallest coherent change
+3. preserve unrelated behavior
+4. avoid opportunistic large refactors unless they are necessary
+5. remove dead code created by the change
+6. update tests and documentation
+7. verify affected interfaces
+
+Do not rewrite working code solely because another style is personally preferred.
+
+Improve surrounding code when it materially reduces risk or complexity.
+
+---
+
+# 29. Compiler and Lints
+
+Compiler warnings must not be ignored without reason.
+
+Do not silence Clippy warnings mechanically.
+
+For every lint suppression:
+
+```rust
+#[allow(...)]
+```
+
+there should be a legitimate reason.
+
+Prefer fixing the underlying issue.
+
+Repository-specific lint configuration takes precedence.
+
+Do not introduce broad crate-level `allow` declarations merely to make CI green.
+
+---
+
+# 30. Verification
+
+After changing Rust code, perform the strongest relevant verification supported by the repository.
+
+At minimum, normally run:
+
+```bash
+cargo fmt --check
+cargo check
+cargo clippy -- -D warnings
+cargo test
+```
+
+For workspaces, use the appropriate workspace commands.
+
+When valid for the repository, prefer:
+
+```bash
+cargo check --workspace --all-targets
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+```
+
+Use `--all-features` only when all feature combinations are intentionally compatible.
+
+Do not blindly use `--all-features` in projects with mutually exclusive or platform-specific feature sets.
+
+Run narrower tests during development when useful, but complete the relevant verification before considering the task finished.
+
+---
+
+# 31. Performance Verification
+
+When a change claims to improve performance, provide evidence when practical.
+
+Suitable evidence may include:
+
+* benchmark before/after
+* profiler output
+* allocation count
+* database query count
+* request latency
+* throughput
+* memory consumption
+* algorithmic complexity analysis
+
+Do not describe a change as a performance improvement merely because it looks lower-level.
+
+---
+
+# 32. Dependency and API Stability
+
+Do not unnecessarily break public interfaces.
+
+Before changing a public API, database schema, serialized structure, or externally consumed behavior, identify downstream impact.
+
+Prefer explicit migrations over implicit compatibility breaks.
+
+Do not preserve poor internal abstractions solely for compatibility when they are not actually public contracts.
+
+---
+
+# 33. Code Review Checklist
+
+Before considering Rust work complete, inspect the change for:
+
+* correctness
+* error paths
+* ownership semantics
+* unnecessary cloning
+* unnecessary allocation
+* panic paths
+* unsafe code
+* concurrency hazards
+* lock scope
+* async blocking
+* domain invariants
+* public API quality
+* duplicate business logic
+* premature abstractions
+* dependency additions
+* security implications
+* logging of sensitive information
+* regression coverage
+* stale comments
+* dead code
+* measurable performance implications
+
+---
+
+# 34. Prohibited Shortcuts
+
+Do not solve compiler or design problems by defaulting to:
+
+* `.clone()`
+* `.unwrap()`
+* `.expect()`
+* `Arc<Mutex<_>>`
+* `Box<dyn Any>`
+* strings representing domain states
+* unchecked casts
+* global mutable state
+* `unsafe`
+* lint suppression
+* unnecessary allocation
+
+These constructs are not forbidden, but each requires a concrete semantic reason.
+
+---
+
+# 35. Simplicity Rule
+
+Prefer the simplest design that preserves:
+
+* correctness
+* explicit invariants
+* clear ownership
+* maintainability
+* required performance characteristics
+
+Avoid both under-engineering and speculative over-engineering.
+
+Do not introduce patterns, traits, abstractions, layers, or generic machinery without a concrete current requirement.
+
+Three understandable types are often better than one highly generic abstraction.
+
+---
+
+# 36. Definition of Done
+
+Rust work is complete only when:
+
+1. behavior is correct
+2. important invariants are represented explicitly
+3. error behavior is intentional
+4. ownership and allocation choices are reasonable
+5. no unjustified clones or allocations were introduced
+6. no unnecessary unsafe code was introduced
+7. tests cover the relevant behavior
+8. formatting and linting pass
+9. relevant tests pass
+10. documentation/comments reflect non-obvious intent
+11. no known dead code or temporary workaround remains undocumented
+12. performance claims are supported rather than assumed
+
+When uncertain between sophisticated Rust and straightforward Rust, prefer straightforward idiomatic Rust unless measurement or domain constraints justify the sophisticated solution.

@@ -31,4 +31,8 @@ Do not chain all four tools for every small change.
 - Historical question: GBrain alone may suffice.
 - Dependency question: Graphify alone may suffice.
 
+## Rust
+
+When creating, modifying, reviewing, or refactoring Rust, follow `rust-engineering-standard.mdc` (plugin rule; attaches on `*.rs` / Cargo files). Correctness, memory/concurrency safety, and explicit invariants come before cleverness or hypothetical performance. Do not use `unwrap()`/`expect()` for expected runtime failure.
+
 Project-specific rules in `AGENTS.md` take precedence over this global routing.
