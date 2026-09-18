@@ -39,4 +39,6 @@ HTTP/API with Axum, Tokio, and Tower additionally follows `rust-axum-engineering
 
 Persistence with SQLx and PostgreSQL follows `rust-sqlx-engineering-standard.mdc`. SQL is architecture, not an implementation detail. Domain types must not depend on `PgPool` / `Transaction`.
 
+Testing and quality follow `testing-quality-engineering-standard.mdc`. Test behavior and invariants, not coverage percentage. Use the lowest layer that reliably proves the behavior.
+
 Project-specific rules in `AGENTS.md` take precedence over this global routing.

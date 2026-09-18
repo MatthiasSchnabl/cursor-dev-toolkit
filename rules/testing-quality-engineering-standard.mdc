@@ -1,0 +1,2483 @@
+---
+description: Production-grade testing and quality standard — behavior, invariants, and regression protection over coverage metrics
+globs: "**/*.rs,**/Cargo.toml,**/rust-toolchain.toml,**/.cargo/**,**/Makefile"
+alwaysApply: false
+---
+
+# Testing & Quality Engineering Standard
+
+These instructions are mandatory for testing and quality assurance in this repository.
+
+This standard supplements:
+
+* the Rust Engineering Standard
+* the Rust Axum Engineering Standard
+* the Rust SQLx + PostgreSQL Engineering Standard
+
+The goal is software whose behavior is:
+
+* correct
+* reproducible
+* regression-resistant
+* deterministic where practical
+* observable
+* maintainable
+* testable
+* safe to change
+* validated at appropriate architectural boundaries
+
+Testing exists to provide confidence in behavior.
+
+Do not optimize for test count.
+
+Do not optimize for code coverage percentage.
+
+Optimize for meaningful confidence in correctness.
+
+---
+
+# 1. Priority Order
+
+When testing decisions conflict, use this order:
+
+1. Correctness of critical behavior
+2. Regression protection
+3. Business/domain invariants
+4. Data integrity and security
+5. Determinism
+6. Relevant boundary coverage
+7. Failure-path coverage
+8. Maintainability
+9. Execution speed
+10. Coverage metrics
+
+A large test suite with weak assertions is worse than a smaller suite that protects important behavior.
+
+---
+
+# 2. Core Testing Principle
+
+Test externally meaningful behavior rather than implementation mechanics.
+
+Tests should answer questions such as:
+
+* Does this business rule hold?
+* Does invalid input get rejected?
+* Does the API return the correct contract?
+* Does the database preserve the required invariant?
+* Does concurrent execution remain correct?
+* Does a previously observed defect stay fixed?
+
+Avoid tests whose only purpose is proving that individual implementation lines executed.
+
+---
+
+# 3. Testing Pyramid
+
+Use several complementary testing layers.
+
+Preferred structure:
+
+```text
+                  ┌─────────────────┐
+                  │ End-to-End      │
+                  │ few, critical   │
+                  └────────┬────────┘
+                           │
+                  ┌────────▼────────┐
+                  │ Integration     │
+                  │ real boundaries │
+                  └────────┬────────┘
+                           │
+                  ┌────────▼────────┐
+                  │ Application /   │
+                  │ Contract tests  │
+                  └────────┬────────┘
+                           │
+                  ┌────────▼────────┐
+                  │ Unit / Domain   │
+                  │ many, fast      │
+                  └─────────────────┘
+```
+
+Do not test everything through HTTP.
+
+Do not test everything through isolated mocks.
+
+Use the lowest test level that proves the behavior reliably.
+
+---
+
+# 4. Test Behavior, Not Implementation
+
+Prefer:
+
+```rust
+#[test]
+fn rejects_order_when_currency_differs_from_account() {
+    ...
+}
+```
+
+over tests such as:
+
+```rust
+#[test]
+fn calls_validate_currency_method_once() {
+    ...
+}
+```
+
+unless interaction itself is part of the contract.
+
+Tests coupled tightly to internal method calls create unnecessary refactoring friction.
+
+---
+
+# 5. Domain Tests
+
+Pure domain behavior should normally have fast unit tests.
+
+Test:
+
+* invariants
+* state transitions
+* calculations
+* validation
+* conversion rules
+* authorization policies
+* edge conditions
+
+Domain tests should preferably require no:
+
+* database
+* network
+* filesystem
+* HTTP server
+* global state
+
+Pure domain tests provide the cheapest and fastest correctness feedback.
+
+---
+
+# 6. Application Tests
+
+Application/use-case tests should verify orchestration semantics where useful.
+
+Examples:
+
+```text
+command accepted
+repository interaction produces expected domain result
+authorization is enforced
+expected failure propagates
+business workflow remains atomic conceptually
+```
+
+Avoid excessive mocking of trivial functions.
+
+Mock or fake meaningful architectural boundaries.
+
+---
+
+# 7. Integration Tests
+
+Use integration tests when behavior depends materially on a real boundary.
+
+Examples:
+
+* PostgreSQL semantics
+* SQLx mappings
+* transactions
+* migrations
+* HTTP routing
+* middleware
+* serialization
+* authentication integration
+* external protocol behavior
+
+Do not replace database integration tests with mocks when PostgreSQL behavior itself matters.
+
+---
+
+# 8. Real PostgreSQL for PostgreSQL Behavior
+
+Tests involving PostgreSQL-specific behavior should run against PostgreSQL.
+
+Examples:
+
+```text
+constraints
+transactions
+isolation
+locks
+JSONB
+PostgreSQL types
+SQL semantics
+migrations
+indexes
+RETURNING
+ON CONFLICT
+```
+
+Do not use SQLite as a stand-in for PostgreSQL when PostgreSQL semantics are part of the behavior being tested.
+
+---
+
+# 9. Testcontainers
+
+Where containerized test infrastructure is appropriate, prefer reproducible ephemeral dependencies.
+
+Testcontainers may be used for:
+
+* PostgreSQL
+* Redis
+* message brokers
+* compatible external infrastructure
+
+Container lifecycle should be managed automatically.
+
+Do not require developers to manually prepare shared test infrastructure for ordinary automated tests.
+
+Testcontainers for Rust is specifically designed for automated integration/E2E dependency lifecycle management and integrates with normal Rust tests.
+
+---
+
+# 10. Test Isolation
+
+Tests must not depend on execution order.
+
+A test must not require another test to run first.
+
+Each test should establish its own required state.
+
+Do not share mutable state between tests unless concurrency/shared-state behavior is itself under test.
+
+---
+
+# 11. Parallel Execution
+
+Assume tests may execute concurrently.
+
+Do not use fixed shared:
+
+```text
+database records
+ports
+files
+directories
+usernames
+global mutable state
+```
+
+unless isolated deliberately.
+
+Test design should support parallel execution whenever practical.
+
+---
+
+# 12. Database Test Isolation
+
+Choose a consistent database isolation strategy.
+
+Possible approaches include:
+
+```text
+transaction-per-test
+isolated schema
+isolated database
+unique test data namespaces
+container-per-suite
+container-per-test where justified
+```
+
+The strategy must prevent cross-test contamination.
+
+Do not rely on manually deleting known rows after each test as the primary isolation strategy.
+
+---
+
+# 13. Determinism
+
+Tests should produce the same result when executed repeatedly.
+
+Avoid accidental dependencies on:
+
+* current wall-clock time
+* random values
+* thread scheduling
+* unordered maps
+* external networks
+* execution order
+* machine-specific filesystem state
+
+Determinism is a quality requirement.
+
+---
+
+# 14. Time
+
+Do not call the real clock throughout business logic when deterministic testing matters.
+
+Prefer injecting or abstracting time at meaningful boundaries.
+
+Example:
+
+```rust
+trait Clock {
+    fn now(&self) -> DateTime<Utc>;
+}
+```
+
+Do not introduce clock abstractions everywhere without need.
+
+Use them where business behavior depends on time.
+
+---
+
+# 15. Avoid Sleeps in Tests
+
+Do not use:
+
+```rust
+tokio::time::sleep(...)
+std::thread::sleep(...)
+```
+
+as the default synchronization mechanism.
+
+Sleeping produces:
+
+* slow tests
+* flaky timing
+* environment dependence
+
+Prefer:
+
+* notifications
+* channels
+* barriers
+* mocked/paused time
+* deterministic state observation
+
+where practical.
+
+---
+
+# 16. Randomness
+
+Tests using randomness must be reproducible.
+
+If randomness materially affects behavior:
+
+* use deterministic seeds where appropriate
+* preserve failing seeds/cases
+* expose enough information to reproduce failures
+
+Do not create tests that sometimes fail with no reproducible input.
+
+---
+
+# 17. Property-Based Testing
+
+Use property-based testing when behavior has a large input space and stable invariants.
+
+Good candidates include:
+
+* parsers
+* serializers/deserializers
+* filter ASTs
+* state machines
+* numeric transformations
+* normalization
+* identifier handling
+* round-trip conversions
+
+Property-based testing should complement normal example-based tests.
+
+`proptest`, for example, generates inputs and shrinks failures toward minimal reproductions.
+
+---
+
+# 18. Property Tests Need Real Properties
+
+Do not write property tests whose property simply reproduces the implementation.
+
+Good properties include:
+
+```text
+deserialize(serialize(x)) == x
+normalize(normalize(x)) == normalize(x)
+sorting preserves all elements
+encoding/decoding round-trips
+valid state transition never violates invariant
+```
+
+A property should express an independent invariant.
+
+---
+
+# 19. Preserve Property-Test Regressions
+
+When property-based testing discovers a meaningful defect, preserve the reproducing case where useful as an explicit regression test.
+
+Property testing finds unknown cases.
+
+Regression tests document known failures permanently.
+
+---
+
+# 20. Regression Tests
+
+Every bug fix should normally include a test demonstrating the defect.
+
+Preferred workflow:
+
+```text
+reproduce defect
+→ write failing regression test
+→ implement fix
+→ verify test passes
+```
+
+A bug fix without regression protection is incomplete unless testing is genuinely impractical.
+
+---
+
+# 21. Regression Test Naming
+
+Regression tests should explain the previously broken behavior.
+
+Prefer:
+
+```rust
+#[test]
+fn preserves_zero_quantity_when_deserializing_legacy_payload() {
+    ...
+}
+```
+
+over:
+
+```rust
+#[test]
+fn regression_381() {
+    ...
+}
+```
+
+Issue references may be included additionally.
+
+The behavioral meaning should remain understandable without external history.
+
+---
+
+# 22. TDD
+
+Use test-driven development where it improves clarity and defect resistance.
+
+Recommended cycle:
+
+```text
+RED
+write a meaningful failing test
+
+GREEN
+implement the smallest coherent behavior
+
+REFACTOR
+improve structure while preserving behavior
+```
+
+Do not practice mechanical TDD where the test cannot meaningfully precede exploration.
+
+TDD is an engineering technique, not a ceremony.
+
+---
+
+# 23. Characterization Tests
+
+Before modifying poorly understood legacy behavior, use characterization tests when necessary.
+
+First establish:
+
+```text
+what the system currently does
+```
+
+then determine intentionally:
+
+```text
+what it should do
+```
+
+Do not accidentally redefine behavior during refactoring.
+
+---
+
+# 24. Error Paths
+
+Test error behavior intentionally.
+
+Do not test only happy paths.
+
+Relevant failures may include:
+
+```text
+invalid input
+missing resource
+conflict
+authentication failure
+authorization failure
+constraint violation
+timeout
+dependency failure
+serialization error
+transaction failure
+concurrent modification
+```
+
+Critical error paths deserve first-class tests.
+
+---
+
+# 25. Boundary Values
+
+Test meaningful boundaries.
+
+Examples:
+
+```text
+0
+1
+maximum allowed value
+one above maximum
+empty collection
+single element
+maximum page size
+maximum request size
+timestamp boundary
+precision boundary
+```
+
+Boundary defects are common and often cheap to test.
+
+---
+
+# 26. Equivalence Classes
+
+Do not create one test for every possible input when several inputs represent the same behavioral class.
+
+Identify meaningful equivalence classes.
+
+Example:
+
+```text
+valid ID
+malformed ID
+well-formed but nonexistent ID
+unauthorized ID access
+```
+
+Test semantics, not combinatorial noise.
+
+---
+
+# 27. Table-Driven Tests
+
+Use table-driven tests when many inputs exercise the same rule.
+
+Example:
+
+```rust
+for (input, expected) in cases {
+    assert_eq!(validate(input), expected);
+}
+```
+
+Use descriptive cases.
+
+Do not hide significantly different behavior inside one giant loop if separate named tests would communicate failures better.
+
+---
+
+# 28. Test Names
+
+Test names should describe observable behavior.
+
+Prefer patterns such as:
+
+```text
+returns_X_when_Y
+rejects_X_when_Y
+preserves_X_when_Y
+creates_X_with_Y
+does_not_X_when_Y
+```
+
+Names should make CI failures understandable without opening the implementation immediately.
+
+---
+
+# 29. Arrange / Act / Assert
+
+Tests should generally have a clear logical shape:
+
+```text
+Arrange
+prepare state/input
+
+Act
+execute behavior
+
+Assert
+verify outcome
+```
+
+Explicit comments are not necessary when structure is already obvious.
+
+Do not mechanically add `// Arrange`, `// Act`, `// Assert` comments to every trivial test.
+
+---
+
+# 30. Assertions
+
+Assertions should verify behavior precisely.
+
+Prefer:
+
+```rust
+assert_eq!(actual.status(), StatusCode::NOT_FOUND);
+```
+
+over:
+
+```rust
+assert!(response.is_err());
+```
+
+when specific semantics matter.
+
+Weak assertions provide weak regression protection.
+
+---
+
+# 31. Assert Relevant State
+
+Do not assert every field merely because it exists.
+
+Assert properties relevant to the behavior under test.
+
+Over-assertion makes unrelated refactoring unnecessarily expensive.
+
+Under-assertion permits defects.
+
+---
+
+# 32. Failure Messages
+
+When an assertion may otherwise be ambiguous, provide useful context.
+
+Failures should enable diagnosis.
+
+Do not add verbose custom messages to obvious assertions unnecessarily.
+
+---
+
+# 33. Test One Coherent Behavior
+
+A test may contain several assertions if they jointly prove one coherent behavior.
+
+Do not enforce an arbitrary "one assertion per test" rule.
+
+Example:
+
+```text
+HTTP status
+Content-Type
+problem type
+request ID
+```
+
+may all describe one API error contract.
+
+---
+
+# 34. Avoid Testing Private Functions Directly by Default
+
+Prefer testing behavior through the smallest meaningful interface.
+
+Private functions may be tested directly when they implement complex independent logic.
+
+Do not expose private implementation as public merely to make it testable.
+
+Refactor testable logic into appropriate modules/types instead.
+
+---
+
+# 35. Rust Unit Tests
+
+Use module-local unit tests where access to internal behavior is useful.
+
+Typical structure:
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ...() {
+        ...
+    }
+}
+```
+
+Rust unit tests can access private APIs in their module hierarchy, which is useful for focused internal testing.
+
+---
+
+# 36. Rust Integration Tests
+
+Use the Cargo `tests/` structure for tests exercising the crate as an external consumer.
+
+Integration tests should primarily use public interfaces.
+
+This helps validate architectural API boundaries.
+
+---
+
+# 37. Documentation Tests
+
+Use doctests for public APIs where runnable examples materially improve documentation.
+
+A good doctest simultaneously:
+
+* explains usage
+* verifies compilation
+* verifies behavior
+
+Do not create doctests for trivial getters or obvious syntax.
+
+`cargo test` executes documentation tests in addition to normal unit and integration tests.
+
+---
+
+# 38. Async Tests
+
+Use async test runtimes only when the behavior is asynchronous.
+
+Prefer:
+
+```rust
+#[tokio::test]
+async fn ...() {
+    ...
+}
+```
+
+for Tokio-dependent behavior.
+
+Do not convert synchronous tests into async tests merely because the application uses Tokio.
+
+Synchronous tests are generally simpler and cheaper.
+
+---
+
+# 39. Async Test Concurrency
+
+Be aware that async tests may execute concurrently with other tests.
+
+Avoid hidden global runtime state.
+
+Do not assume executor scheduling order.
+
+Use explicit synchronization when scheduling behavior matters.
+
+---
+
+# 40. HTTP Router Tests
+
+For Axum transport behavior, prefer testing the actual router/service in process.
+
+Test:
+
+* routes
+* extractors
+* middleware
+* authentication
+* authorization
+* status codes
+* headers
+* serialization
+* Problem Details
+
+Do not launch a real TCP listener when router-level service testing proves the required behavior.
+
+---
+
+# 41. API Contract Tests
+
+Externally visible API behavior should have contract tests.
+
+Verify where relevant:
+
+```text
+method
+path
+status
+headers
+media type
+request schema
+response schema
+error schema
+pagination semantics
+authentication requirements
+```
+
+Tests should protect externally consumed behavior from accidental refactoring changes.
+
+---
+
+# 42. OpenAPI Consistency
+
+If OpenAPI is authoritative, test that implementation and specification remain synchronized where technically feasible.
+
+Do not allow:
+
+```text
+Rust implementation
+OpenAPI document
+generated clients
+```
+
+to drift independently.
+
+Contract drift is a production defect.
+
+---
+
+# 43. RFC 9457 Error Tests
+
+Where RFC 9457 is adopted, test at least:
+
+```text
+status
+Content-Type: application/problem+json
+type
+title where contractually meaningful
+stable extensions
+absence of internal error details
+```
+
+Do not rely solely on visual inspection.
+
+---
+
+# 44. Authentication Tests
+
+Authentication boundaries should include tests for:
+
+```text
+missing credential
+malformed credential
+invalid credential
+expired credential where relevant
+valid credential
+```
+
+Do not bypass the actual authentication boundary in every test.
+
+---
+
+# 45. Authorization Tests
+
+Authorization tests should distinguish:
+
+```text
+unauthenticated
+authenticated and permitted
+authenticated but forbidden
+```
+
+Test relevant role/ownership/tenant boundaries.
+
+Security tests should verify negative cases explicitly.
+
+---
+
+# 46. Tenant Isolation
+
+For multi-tenant systems, tenant isolation is a critical invariant.
+
+Test that one tenant cannot:
+
+* read
+* update
+* delete
+* enumerate
+
+another tenant's data.
+
+Do not assume query filters guarantee this without explicit tests.
+
+---
+
+# 47. SQLx Repository Tests
+
+Repository integration tests should verify:
+
+* correct mappings
+* cardinality
+* null handling
+* constraints
+* transactions
+* affected-row semantics
+* dynamic filters
+* sorting
+* pagination
+* PostgreSQL-specific behavior
+
+Do not test SQLx code solely through mocks.
+
+---
+
+# 48. Migration Tests
+
+Important migrations should be tested against realistic prior-state data.
+
+Verify:
+
+```text
+migration applies
+existing data survives
+new constraints hold
+application queries remain valid
+expected indexes exist
+```
+
+Do not validate migrations only against an empty database.
+
+---
+
+# 49. Transaction Tests
+
+Test transactional failure behavior.
+
+Example:
+
+```text
+operation A succeeds
+operation B fails
+→ neither A nor B remains committed
+```
+
+Atomicity should be demonstrated where it matters.
+
+---
+
+# 50. Concurrency Tests
+
+Where behavior depends on concurrent access, test it concurrently.
+
+Examples:
+
+```text
+duplicate insert
+optimistic locking
+idempotency
+competing updates
+row locking
+job claiming
+```
+
+Sequential tests cannot prove concurrency properties.
+
+---
+
+# 51. Concurrency Tests Must Be Deterministic Where Possible
+
+Coordinate concurrent tasks explicitly.
+
+Use mechanisms such as:
+
+```text
+Barrier
+Notify
+channels
+controlled transaction points
+```
+
+rather than hoping two operations overlap at the right moment.
+
+Concurrency tests based only on timing are prone to flakiness.
+
+---
+
+# 52. Race Conditions
+
+When fixing a concurrency defect, create a test that deliberately creates the conflicting execution order where practical.
+
+A regression test that only occasionally triggers the race is insufficient.
+
+---
+
+# 53. Cancellation Tests
+
+Operations with meaningful side effects should be tested for cancellation behavior where cancellation risk is material.
+
+Examples:
+
+```text
+client disconnect
+timeout
+task abort
+shutdown
+```
+
+Verify that cancellation does not leave impossible or partially committed application state.
+
+---
+
+# 54. Timeout Tests
+
+Test timeout handling without unnecessary real-time waiting.
+
+Prefer simulated or controllable delay mechanisms.
+
+Verify:
+
+* operation finishes before timeout
+* operation exceeds timeout
+* correct error semantics result
+* resources are released appropriately
+
+---
+
+# 55. Retry Tests
+
+Retry logic must test:
+
+```text
+retryable error
+non-retryable error
+eventual success
+retry exhaustion
+maximum attempt count
+```
+
+Where backoff logic matters, test it deterministically.
+
+Do not create tests that spend actual production backoff intervals waiting.
+
+---
+
+# 56. Idempotency Tests
+
+For idempotent operations verify:
+
+```text
+same key + same request
+same result
+
+same key + conflicting request
+defined conflict behavior
+
+concurrent same-key requests
+single logical effect
+```
+
+Idempotency should be tested under concurrency where relevant.
+
+---
+
+# 57. Serialization Tests
+
+Test serialization contracts that persist or cross service boundaries.
+
+Relevant properties include:
+
+```text
+field names
+enum representations
+null behavior
+defaults
+unknown-field behavior
+round trips
+backward compatibility
+```
+
+Do not test Serde itself.
+
+Test your contract.
+
+---
+
+# 58. Backward Compatibility Tests
+
+For persisted or external formats, retain compatibility fixtures where needed.
+
+Examples:
+
+```text
+old API payload
+previous export format
+historical database representation
+event schema
+```
+
+Verify that supported historical data continues to deserialize correctly.
+
+---
+
+# 59. Golden Files / Snapshot Tests
+
+Snapshot testing is useful for large structured output where reviewing the whole representation is meaningful.
+
+Appropriate candidates:
+
+```text
+complex JSON structures
+generated documentation
+protocol output
+diagnostic formatting
+```
+
+Do not use snapshots for every value.
+
+Snapshots can hide weak test intent.
+
+---
+
+# 60. Review Snapshot Changes
+
+Never update snapshots mechanically merely because CI failed.
+
+A snapshot change is a behavioral change.
+
+Review the diff and determine whether it is intentional.
+
+---
+
+# 61. Avoid Brittle Snapshots
+
+Normalize or exclude intentionally unstable values such as:
+
+```text
+timestamps
+UUIDs
+temporary paths
+random ports
+request IDs
+```
+
+when they are not part of the tested contract.
+
+Do not make snapshots fail for irrelevant nondeterminism.
+
+---
+
+# 62. Test Fixtures
+
+Fixtures should be minimal and intentional.
+
+Prefer creating only the state required by the test.
+
+Large shared fixture datasets create:
+
+* hidden dependencies
+* slow setup
+* brittle assumptions
+* unclear failures
+
+---
+
+# 63. Test Builders
+
+Use builders/factories when test setup would otherwise contain repetitive irrelevant data.
+
+Example:
+
+```rust
+let article = ArticleBuilder::default()
+    .with_status(Status::Active)
+    .build();
+```
+
+Builders should make meaningful test differences visible.
+
+Do not create a complicated testing DSL that hides important state.
+
+---
+
+# 64. Sensible Defaults
+
+Test builders may supply valid defaults.
+
+A test should specify only fields relevant to the behavior under test where possible.
+
+However, do not use defaults that silently encode critical business assumptions.
+
+Important conditions should remain explicit.
+
+---
+
+# 65. Avoid Production Fixtures in Unit Tests
+
+Unit tests should not depend on production database dumps or large exported files unless the behavior specifically concerns those formats.
+
+Keep ordinary tests small and comprehensible.
+
+Use dedicated realistic-data/performance suites separately.
+
+---
+
+# 66. Mocks
+
+Use mocks sparingly.
+
+Mocks are appropriate when verifying meaningful interaction with an external boundary.
+
+Do not mock:
+
+* simple pure functions
+* every internal service
+* implementation details
+
+Excessive mocking proves the mocks agree with the code, not that the system works.
+
+---
+
+# 67. Fakes
+
+Prefer simple in-memory fakes over complex mocks when stateful behavior matters but the real dependency is unnecessary.
+
+A fake should implement meaningful contract behavior.
+
+Do not let fake semantics diverge materially from the production dependency.
+
+Critical production-specific behavior still requires integration tests.
+
+---
+
+# 68. Stubs
+
+Use stubs for predetermined external responses where interaction verification is irrelevant.
+
+Keep test doubles simple.
+
+Do not implement miniature replicas of external platforms.
+
+---
+
+# 69. External API Tests
+
+Do not depend on real third-party production APIs in ordinary CI.
+
+Prefer:
+
+* protocol-level mocks
+* local fake servers
+* recorded stable fixtures where appropriate
+* vendor sandbox environments for dedicated suites
+
+Tests must not fail because the public internet is temporarily unavailable.
+
+---
+
+# 70. Contract Tests for External Services
+
+Where an external API is business-critical, test assumptions about its contract.
+
+Examples:
+
+```text
+required fields
+status mapping
+error payloads
+authentication behavior
+serialization
+```
+
+Use vendor sandbox or controlled fixtures where appropriate.
+
+Do not rely solely on mocked happy paths.
+
+---
+
+# 71. Filesystem Tests
+
+Use temporary isolated directories.
+
+Do not write tests into fixed developer paths.
+
+Clean up resources through RAII or equivalent lifecycle management.
+
+Do not assume platform-specific path syntax unless the application itself requires it.
+
+---
+
+# 72. Environment Variables
+
+Tests modifying process-wide environment variables can interfere with parallel execution.
+
+Avoid mutable global environment dependence where practical.
+
+Prefer passing typed configuration into testable components.
+
+If environment testing is necessary, isolate it appropriately.
+
+---
+
+# 73. Global State
+
+Avoid global mutable state in production and tests.
+
+Global state creates hidden coupling and makes parallel tests unreliable.
+
+If unavoidable, reset it explicitly and prevent concurrent interference.
+
+---
+
+# 74. Flaky Tests
+
+A flaky test is a defect.
+
+Do not normalize intermittent failures.
+
+Do not simply rerun flaky tests until CI passes.
+
+Investigate the root cause.
+
+---
+
+# 75. Quarantining Tests
+
+Temporary quarantine may be acceptable only when:
+
+* the failure is understood
+* ownership exists
+* remediation is tracked
+* the test is not silently forgotten
+
+Do not permanently disable failing tests.
+
+---
+
+# 76. Retry in CI
+
+CI-level retry can help diagnose infrastructure instability but must not hide deterministic product defects.
+
+A test that succeeds only after multiple attempts remains suspect.
+
+Test retries are not a substitute for deterministic engineering.
+
+---
+
+# 77. Ignored Tests
+
+Use:
+
+```rust
+#[ignore]
+```
+
+only for intentionally separate test categories.
+
+Examples:
+
+```text
+very expensive integration test
+manual external-system test
+long-running benchmark
+```
+
+Do not use `#[ignore]` to make failing tests disappear.
+
+---
+
+# 78. Fast Feedback
+
+Developers and agents should run the smallest relevant test set while implementing changes.
+
+Example:
+
+```text
+specific unit test
+→ affected module tests
+→ affected integration suite
+→ full verification
+```
+
+Do not rerun an entire expensive workspace suite after every minor edit if a focused test provides equivalent development feedback.
+
+---
+
+# 79. Full Verification Before Completion
+
+Focused development tests do not replace final verification.
+
+Before completion, run the repository-defined quality gates appropriate to the change.
+
+Typically:
+
+```bash
+cargo fmt --check
+cargo check
+cargo clippy -- -D warnings
+cargo test
+```
+
+Use workspace/target/feature variants appropriate to the repository.
+
+---
+
+# 80. `cargo nextest`
+
+For larger suites, `cargo nextest` may be used to improve execution, reporting, partitioning, retries for diagnostic purposes, and test orchestration.
+
+It should not change test semantics.
+
+Do not make correctness depend on a specific runner unless the repository explicitly adopts it.
+
+---
+
+# 81. CI Test Categories
+
+As the project grows, distinguish test classes where useful.
+
+Example:
+
+```text
+fast:
+    unit/domain tests
+
+standard:
+    unit + application + normal integration
+
+database:
+    PostgreSQL-dependent tests
+
+contract:
+    API/external contracts
+
+slow:
+    expensive integration tests
+
+performance:
+    benchmarks/load tests
+```
+
+Do not create excessive categories that complicate normal development.
+
+---
+
+# 82. Pull Request Gates
+
+A normal pull request should not merge with:
+
+```text
+formatting failure
+compile failure
+lint failure
+relevant test failure
+migration verification failure
+SQLx metadata drift
+contract regression
+```
+
+unless an explicitly approved exception exists.
+
+Quality gates must be deterministic and actionable.
+
+---
+
+# 83. Main Branch Gates
+
+The protected main branch should represent a releasable state.
+
+Use stronger validation on main when necessary, including slower suites that would unnecessarily delay every local iteration.
+
+Do not defer critical correctness tests until after deployment.
+
+---
+
+# 84. Feature Combinations
+
+Rust feature flags can create multiple program variants.
+
+Test meaningful supported feature combinations.
+
+Do not blindly use:
+
+```bash
+--all-features
+```
+
+when features are mutually exclusive or represent impossible configurations.
+
+Use a deliberate feature test matrix.
+
+---
+
+# 85. Compilation Is Also a Test
+
+For APIs driven strongly by the Rust type system, compilation itself verifies important invariants.
+
+Consider compile-fail tests where preventing invalid API usage is part of the contract.
+
+Do not replace runtime tests with compile tests when runtime semantics still matter.
+
+---
+
+# 86. Platform-Specific Behavior
+
+If the software supports multiple platforms and contains platform-dependent behavior, test the relevant supported targets in CI.
+
+Do not claim cross-platform support based solely on compilation on one operating system.
+
+---
+
+# 87. Test Toolchain Consistency
+
+CI and local development should use compatible toolchain definitions.
+
+Pin or define the Rust toolchain according to project policy.
+
+Avoid unexplained discrepancies between:
+
+```text
+developer Rust
+CI Rust
+production build Rust
+```
+
+---
+
+# 88. Code Coverage
+
+Coverage is a diagnostic instrument.
+
+It is not proof of correctness.
+
+A line executed during a test may still be incorrectly tested.
+
+Do not optimize tests merely to increase percentage metrics.
+
+---
+
+# 89. Coverage Interpretation
+
+Use coverage to identify suspicious gaps in important logic.
+
+High-value uncovered areas include:
+
+```text
+business rules
+error paths
+security boundaries
+transaction behavior
+critical parsers
+compatibility code
+```
+
+Low-value uncovered code may include trivial boilerplate.
+
+Use engineering judgment.
+
+---
+
+# 90. Coverage Thresholds
+
+Do not impose arbitrary repository-wide targets such as:
+
+```text
+100%
+95%
+90%
+```
+
+without understanding the consequences.
+
+If thresholds are used, they should protect against meaningful regression rather than encourage meaningless tests.
+
+Prefer preventing material coverage regression in critical areas over chasing a universal number.
+
+---
+
+# 91. Coverage Tooling
+
+Where code coverage is needed, `cargo llvm-cov` is an appropriate Rust-native coverage workflow based on LLVM source coverage and can integrate with normal test execution and nextest.
+
+Coverage tooling should not materially alter production behavior.
+
+---
+
+# 92. Mutation Testing
+
+Mutation testing can assess whether tests actually detect behavioral changes.
+
+Consider mutation testing for:
+
+* critical domain logic
+* high-risk libraries
+* mature test suites
+
+Do not require mutation testing for every pull request unless execution cost is acceptable.
+
+Mutation score is also not an absolute quality measure.
+
+---
+
+# 93. Fuzz Testing
+
+Use fuzzing for parsers and input-heavy security boundaries where malformed or adversarial data is significant.
+
+Good targets include:
+
+```text
+binary formats
+custom parsers
+protocol decoders
+filter languages
+complex deserializers
+```
+
+Fuzzing complements, but does not replace, unit and property testing.
+
+---
+
+# 94. Unsafe Code Testing
+
+Code containing `unsafe` requires additional scrutiny.
+
+Where applicable use:
+
+* focused invariant tests
+* Miri
+* sanitizers
+* fuzzing
+
+according to the risk.
+
+Normal tests alone cannot establish memory safety.
+
+---
+
+# 95. Concurrency Model Testing
+
+For sophisticated low-level concurrent code, consider specialized concurrency testing/modeling tools where applicable.
+
+Do not assume running the same concurrent test thousands of times proves absence of races.
+
+Prefer simpler concurrency architecture whenever possible.
+
+---
+
+# 96. Performance Tests
+
+Performance tests should measure behavior that matters.
+
+Potential metrics include:
+
+```text
+latency
+throughput
+allocations
+memory usage
+query count
+database latency
+serialization cost
+CPU usage
+```
+
+Do not label ordinary correctness tests as benchmarks.
+
+---
+
+# 97. Benchmarks
+
+Benchmarks must represent realistic workloads.
+
+A microbenchmark is useful only for questions that microbenchmarking can answer.
+
+Do not infer complete HTTP/database system performance from benchmarking one isolated function.
+
+---
+
+# 98. Performance Regression
+
+For proven performance-critical code, consider maintaining benchmarks that identify significant regressions.
+
+Avoid overly strict thresholds susceptible to noisy CI hardware.
+
+Use statistical evidence and meaningful tolerances.
+
+---
+
+# 99. Load Testing
+
+Use load tests for system behavior under concurrency and volume.
+
+Load testing should examine:
+
+```text
+p50/p95/p99 latency
+throughput
+error rate
+database saturation
+connection pool saturation
+CPU
+memory
+backpressure
+timeout behavior
+```
+
+Do not use unit-test benchmarks as substitutes for system-level load testing.
+
+---
+
+# 100. Production-Like Data
+
+Performance-sensitive data paths should eventually be tested against realistic data volume and distribution.
+
+A query passing on 100 rows says little about behavior at 100,000 or 100 million rows.
+
+Use representative datasets where scaling risk matters.
+
+---
+
+# 101. Security Testing
+
+Security-relevant behavior should have explicit tests.
+
+Examples:
+
+```text
+authorization boundaries
+tenant isolation
+input rejection
+secret redaction
+SQL injection resistance
+path traversal prevention
+request-size limits
+authentication failures
+```
+
+Do not assume secure libraries alone guarantee correct application integration.
+
+---
+
+# 102. Sensitive Data in Tests
+
+Do not use real production secrets or personal data in automated tests.
+
+Use synthetic test data.
+
+Fixtures must not accidentally become repositories for confidential information.
+
+---
+
+# 103. Log Testing
+
+Test logging only when logging behavior is itself important.
+
+Examples:
+
+```text
+secret must not be logged
+request ID must be propagated
+security audit event must exist
+```
+
+Do not assert ordinary informational log wording.
+
+That creates brittle tests.
+
+---
+
+# 104. Observability Testing
+
+Where operational correctness depends on observability, verify critical telemetry.
+
+Examples:
+
+```text
+trace propagation
+correlation IDs
+important metrics
+security audit events
+```
+
+Observability is part of production behavior when operators depend on it.
+
+---
+
+# 105. Error Message Testing
+
+Do not assert complete human-readable error strings unless wording is part of the external contract.
+
+Prefer stable machine-readable properties:
+
+```text
+error variant
+problem type
+status
+code
+```
+
+Human wording should normally remain changeable.
+
+---
+
+# 106. Test Public Contracts Strongly
+
+Be conservative about changing tests that represent:
+
+* API contracts
+* persisted data formats
+* domain invariants
+* security boundaries
+* database constraints
+
+A failing contract test may indicate that production behavior is being changed, not that the test is outdated.
+
+---
+
+# 107. Do Not Modify Tests Merely to Make New Code Pass
+
+When implementation and test disagree, determine which represents the required behavior.
+
+Do not automatically rewrite the test.
+
+Before changing an existing meaningful test, understand:
+
+* what behavior it protects
+* why that behavior existed
+* whether requirements changed
+
+Tests are evidence of intended behavior.
+
+---
+
+# 108. No Test-Specific Production Behavior
+
+Avoid production code such as:
+
+```rust
+if cfg!(test) {
+    // behave differently
+}
+```
+
+unless there is a concrete technical reason.
+
+Tests should exercise production behavior as closely as practical.
+
+Do not weaken validation, authentication, locking, or persistence semantics merely to simplify tests.
+
+---
+
+# 109. Testability Is an Architectural Signal
+
+Code that is extremely difficult to test may indicate:
+
+* excessive coupling
+* hidden global state
+* unclear boundaries
+* mixed responsibilities
+* uncontrolled side effects
+
+Do not automatically solve poor testability by adding mocks.
+
+Evaluate the architecture first.
+
+---
+
+# 110. Avoid Over-Abstraction for Testing
+
+Do not introduce a trait for every function merely so it can be mocked.
+
+Traits should represent meaningful boundaries or polymorphism.
+
+Testing convenience alone does not justify architectural complexity.
+
+---
+
+# 111. Test Helpers
+
+Test helper functions should make tests easier to understand.
+
+Do not move important test behavior into opaque helpers.
+
+A reader should be able to understand:
+
+```text
+given state
+operation
+expected result
+```
+
+without following many helper layers.
+
+---
+
+# 112. Shared Test Infrastructure
+
+Shared infrastructure is appropriate for mechanical setup such as:
+
+```text
+database creation
+router construction
+authentication token fixture
+common test client
+```
+
+Do not centralize business-specific expectations into generic helpers.
+
+Tests should preserve their semantic intent locally.
+
+---
+
+# 113. Comments in Tests
+
+Comments should explain non-obvious test reasoning.
+
+Useful comments include:
+
+* why a specific concurrency ordering is required
+* why an apparently strange value is a boundary
+* why a regression requires unusual setup
+
+Do not narrate obvious test code.
+
+---
+
+# 114. LLM-Friendly Tests
+
+Tests are executable documentation for future coding agents.
+
+Use descriptive:
+
+* test names
+* domain values
+* builders
+* fixture names
+* assertions
+
+Avoid cryptic test data such as:
+
+```text
+foo
+bar
+123
+x
+y
+```
+
+when domain-specific names would better explain behavior.
+
+---
+
+# 115. Tests as Specification Evidence
+
+For critical functionality, tests should make expected behavior reconstructable without relying solely on implementation code.
+
+A future developer or agent should be able to infer:
+
+```text
+what inputs are valid
+what outputs are expected
+what errors exist
+what invariants matter
+```
+
+from the relevant test suite.
+
+---
+
+# 116. Delete Obsolete Tests
+
+Tests are production maintenance assets.
+
+Remove tests that protect behavior that no longer exists.
+
+Do not retain obsolete tests merely because they are green.
+
+But verify that the protected behavior is genuinely obsolete before deletion.
+
+---
+
+# 117. Duplicate Tests
+
+Some intentional overlap between layers is acceptable.
+
+Example:
+
+```text
+domain validation unit test
++
+HTTP validation contract test
+```
+
+These protect different boundaries.
+
+Avoid duplicating the exact same behavior at every layer without additional value.
+
+---
+
+# 118. Testing New Features
+
+Every new feature should identify:
+
+```text
+core success behavior
+important failure behavior
+domain invariants
+boundary behavior
+integration risks
+regression risks
+```
+
+and place tests at the appropriate layers.
+
+Do not finish implementation first and add arbitrary tests afterward merely to satisfy a process gate.
+
+---
+
+# 119. Testing Bug Fixes
+
+For a bug:
+
+1. reproduce it
+2. identify the violated invariant
+3. add the narrowest meaningful regression test
+4. implement the fix
+5. run related tests
+6. run the relevant full quality gates
+
+If reproducing the defect is impossible, document why.
+
+---
+
+# 120. Testing Refactors
+
+A pure refactor should normally not require changing behavioral expectations.
+
+Existing tests should continue to pass.
+
+If many tests must change during a supposedly behavior-preserving refactor, determine whether:
+
+* tests are over-coupled to implementation
+* the refactor is actually changing behavior
+
+Do not disguise behavioral change as refactoring.
+
+---
+
+# 121. Testing Schema Changes
+
+Database schema changes require validation of:
+
+```text
+migration correctness
+existing-data compatibility
+constraint behavior
+repository queries
+SQLx metadata
+affected API/application behavior
+```
+
+Do not consider a migration validated merely because `sqlx migrate run` succeeded once locally.
+
+---
+
+# 122. Testing API Changes
+
+API changes require verification of:
+
+```text
+request compatibility
+response compatibility
+status semantics
+error contract
+OpenAPI
+generated consumers where relevant
+```
+
+Breaking changes must be intentional.
+
+---
+
+# 123. Test Selection by Risk
+
+Testing effort should scale with risk.
+
+Higher-risk changes include:
+
+```text
+authentication
+authorization
+financial calculations
+data migrations
+concurrency
+transactions
+cross-system integrations
+public API contracts
+unsafe Rust
+```
+
+These justify deeper testing than trivial formatting or internal mapping changes.
+
+---
+
+# 124. Critical Paths
+
+Identify business-critical paths and protect them explicitly.
+
+Critical-path tests should not rely only on incidental coverage through unrelated tests.
+
+Examples:
+
+```text
+login
+order creation
+data import
+payment
+critical workflow completion
+```
+
+depending on the application.
+
+---
+
+# 125. Test Failure Diagnosis
+
+A failed test should make diagnosis reasonably efficient.
+
+Prefer failures that show:
+
+```text
+expected
+actual
+relevant context
+specific violated behavior
+```
+
+Avoid broad end-to-end tests that can fail for dozens of unrelated reasons without useful diagnostic information.
+
+---
+
+# 126. CI Failure Must Be Actionable
+
+CI output should clearly identify:
+
+```text
+which stage failed
+which test failed
+why it failed
+where useful artifacts are located
+```
+
+Do not create quality gates whose failures require guessing.
+
+---
+
+# 127. CI Ordering
+
+Run cheap deterministic gates before expensive suites.
+
+Typical order:
+
+```text
+format
+→ compile/check
+→ lint
+→ fast tests
+→ integration tests
+→ specialized validation
+```
+
+This provides faster feedback and avoids wasting expensive resources when basic checks already fail.
+
+---
+
+# 128. Fail Fast vs Full Failure Visibility
+
+During local development, fail-fast behavior can improve feedback speed.
+
+In CI, obtaining multiple independent failures in one run may be more useful.
+
+Choose runner behavior according to diagnostic value.
+
+---
+
+# 129. CI Caching
+
+Cache compilation artifacts and dependencies where safe and useful.
+
+Do not cache mutable test state in a way that changes test semantics.
+
+Performance optimization of CI must not reduce reproducibility.
+
+---
+
+# 130. Reproducibility
+
+A failing CI test should be reproducible locally wherever practical.
+
+Keep commands documented.
+
+Avoid CI-only magic that developers or agents cannot execute or understand.
+
+---
+
+# 131. Quality Gate Baseline
+
+Unless the repository defines stronger rules, Rust changes should normally pass:
+
+```bash
+cargo fmt --check
+cargo check
+cargo clippy -- -D warnings
+cargo test
+```
+
+For workspaces use appropriate workspace variants.
+
+For SQLx projects additionally run the SQLx checks defined by the repository.
+
+---
+
+# 132. Suggested Extended Gate
+
+For a mature workspace, an extended gate may include conceptually:
+
+```bash
+cargo fmt --check
+
+cargo check --workspace --all-targets
+
+cargo clippy --workspace --all-targets -- -D warnings
+
+cargo test --workspace
+
+cargo sqlx prepare --check
+```
+
+Adjust:
+
+```text
+features
+targets
+platforms
+database dependencies
+```
+
+to the actual repository.
+
+Do not copy commands blindly when repository configuration makes them inappropriate.
+
+---
+
+# 133. Test Runner Policy
+
+`cargo test` remains the canonical baseline unless the repository explicitly adopts another runner.
+
+Alternative runners such as `cargo nextest` may improve large-suite execution, but must not become an undocumented local-only requirement.
+
+Document the canonical CI command.
+
+---
+
+# 134. Coverage Gate Policy
+
+If coverage is tracked:
+
+* report it consistently
+* monitor meaningful regressions
+* inspect uncovered critical logic
+
+Do not reject high-quality code solely because a global percentage changed slightly without evaluating the uncovered behavior.
+
+---
+
+# 135. Test Performance Budget
+
+Test execution time is an engineering concern.
+
+A suite that becomes too slow will be run less often.
+
+Track major increases in:
+
+```text
+test duration
+container startup
+database setup
+compilation
+fixture generation
+```
+
+Optimize test architecture when execution cost begins reducing developer feedback quality.
+
+---
+
+# 136. Do Not Optimize Tests Prematurely
+
+Do not sacrifice test isolation or fidelity merely to shave minor runtime.
+
+Optimize after identifying actual slow components.
+
+Common improvements include:
+
+```text
+reuse compilation
+better fixture creation
+suite-level containers
+focused test selection
+parallel execution
+```
+
+while preserving isolation.
+
+---
+
+# 137. Manual Testing
+
+Manual testing may supplement automated tests.
+
+It does not replace repeatable regression coverage for behavior that can reasonably be automated.
+
+Do not consider:
+
+```text
+"I clicked through it once"
+```
+
+a permanent quality gate.
+
+---
+
+# 138. Exploratory Testing
+
+Exploratory testing is useful for discovering:
+
+* unexpected workflows
+* usability defects
+* integration behavior
+* edge cases
+
+When exploratory testing discovers a reproducible software defect, add automated regression coverage where practical.
+
+---
+
+# 139. Production Incidents
+
+A production defect should normally result in:
+
+```text
+root-cause understanding
++
+regression test
++
+implementation fix
+```
+
+where technically possible.
+
+Repeated classes of incidents should trigger examination of missing test categories or architecture weaknesses.
+
+---
+
+# 140. Prohibited Testing Shortcuts
+
+Do not solve quality problems by defaulting to:
+
+```text
+testing only happy paths
+mocking every dependency
+using SQLite instead of PostgreSQL for PostgreSQL behavior
+large sleeps
+random nondeterministic tests
+shared mutable fixtures
+test-order dependencies
+ignoring flaky tests
+#[ignore] for failing tests
+rewriting tests just to make implementation pass
+snapshot-updating without review
+100% coverage as a goal
+integration tests for every trivial function
+unit tests for framework/library behavior
+test-only production shortcuts
+real production credentials
+real personal data
+live third-party APIs in normal CI
+```
+
+These techniques are not universally forbidden, but exceptions require a concrete reason.
+
+---
+
+# 141. Review Checklist
+
+Before considering a change complete, review:
+
+* Is the critical behavior tested?
+* Are meaningful error paths tested?
+* Is the test at the correct architectural layer?
+* Is there unnecessary mocking?
+* Does database behavior use real PostgreSQL where required?
+* Are tests independent?
+* Are tests deterministic?
+* Are concurrency tests coordinated deliberately?
+* Are time/randomness dependencies controlled?
+* Is the test name descriptive?
+* Are assertions strong enough?
+* Are assertions overly coupled to implementation?
+* Does a bug fix have regression coverage?
+* Are external contracts protected?
+* Are security boundaries tested?
+* Are test fixtures minimal?
+* Is sensitive data absent?
+* Are flaky behaviors introduced?
+* Are tests unnecessarily slow?
+* Have relevant full quality gates been executed?
+
+---
+
+# 142. Definition of Done
+
+Testing and quality work is complete only when:
+
+1. Critical behavior has appropriate automated coverage.
+2. Important domain invariants are tested.
+3. Relevant error paths are tested.
+4. Regression fixes include regression tests where practical.
+5. Tests exist at the appropriate architectural layers.
+6. PostgreSQL-specific behavior is tested against PostgreSQL.
+7. API contracts are verified where relevant.
+8. Authentication and authorization boundaries are covered where affected.
+9. Tests are isolated.
+10. Tests are deterministic where practical.
+11. Tests do not depend on execution order.
+12. Timing-based flakiness has been avoided.
+13. Random failures can be reproduced.
+14. Concurrency-sensitive behavior is tested deliberately where relevant.
+15. Migration behavior is tested where affected.
+16. External API assumptions are controlled.
+17. Test doubles do not replace necessary integration testing.
+18. Coverage is used as evidence, not as a target.
+19. No known flaky test is being silently ignored.
+20. Relevant formatting, compilation, linting, and test gates pass.
+21. Test code is understandable and maintainable.
+22. Test execution remains practical enough to be run regularly.
+23. Public and persistence contracts remain protected.
+24. A future engineer or coding agent can infer the important expected behavior from the tests.
+
+When deciding between many shallow tests and fewer tests protecting meaningful invariants, prefer meaningful invariants.
+
+When deciding between mocking a real architectural boundary and running a reasonably cheap real integration, prefer the real integration when its behavior matters.
+
+When deciding whether a failing test or the implementation is wrong, determine the intended contract first.
+
+When deciding whether coverage is sufficient, evaluate risk and behavior rather than percentage alone.
