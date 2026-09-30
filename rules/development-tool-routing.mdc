@@ -45,6 +45,8 @@ Security and supply chain follow `security-supply-chain-engineering-standard.mdc
 
 Rig/agentic systems additionally follow `rust-rig-agentic-engineering-standard.mdc`. Rig is orchestration, not architecture. Domain types must not depend on `rig::Agent`.
 
+Logging, tracing, and observability follow `observability-logging-tracing-engineering-standard.mdc`. Spans, structured fields, and filters are the mechanism; domain standards keep their own policy.
+
 ## Engineering audits
 
 Repository-wide or scoped engineering audits use plugin skills under `skills/engineering/`.
@@ -55,7 +57,6 @@ Repository-wide or scoped engineering audits use plugin skills under `skills/eng
 - Security: `/security-supply-chain-engineering-audit` and `/security-supply-chain-engineering-fix`. Fix is allowed only against a completed open audit in `docs/engineering-audits/security/`; never invent findings or silently re-audit in fix mode. Both skills read `skills/engineering/_standards/security-supply-chain-engineering-standard.md`, which must stay in sync with `rules/security-supply-chain-engineering-standard.mdc`. Never reproduce secrets.
 - Rig/agentic: `/rust-rig-agentic-engineering-audit` and `/rust-rig-agentic-engineering-fix`. Fix is allowed only against a completed open audit in `docs/engineering-audits/rig/`; never invent findings or silently re-audit in fix mode. Both skills read `skills/engineering/_standards/rust-rig-agentic-engineering-standard.md`, which must stay in sync with `rules/rust-rig-agentic-engineering-standard.mdc`.
 - SQLx/PostgreSQL: `/rust-sqlx-engineering-audit` and `/rust-sqlx-engineering-fix`. Fix is allowed only against a completed open audit in `docs/engineering-audits/sqlx/`; never invent findings or silently re-audit in fix mode. Both skills read `skills/engineering/_standards/rust-sqlx-postgresql-engineering-standard.md`, which must stay in sync with `rules/rust-sqlx-engineering-standard.mdc`.
-
-Further domains (full audit) come later.
+- Observability, logging, and tracing: `/observability-logging-tracing-engineering-audit` and `/observability-logging-tracing-engineering-fix`. Fix is allowed only against a completed open audit in `docs/engineering-audits/observability/`; never invent findings or silently re-audit in fix mode. Both skills read `skills/engineering/_standards/observability-logging-tracing-engineering-standard.md`, which must stay in sync with `rules/observability-logging-tracing-engineering-standard.mdc`.
 
 Project-specific rules in `AGENTS.md` take precedence over this global routing.

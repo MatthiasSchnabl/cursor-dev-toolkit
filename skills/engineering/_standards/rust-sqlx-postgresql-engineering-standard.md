@@ -7,6 +7,8 @@ This standard supplements:
 * the Rust Engineering Standard
 * the Rust Axum Engineering Standard
 
+Detailed logging, tracing and observability requirements are defined by the Observability, Logging & Tracing Engineering Standard.
+
 The goal is database code that is:
 
 * correct

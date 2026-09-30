@@ -24,7 +24,9 @@
     "./skills/engineering/rust-rig-agentic-engineering-audit",
     "./skills/engineering/rust-rig-agentic-engineering-fix",
     "./skills/engineering/rust-sqlx-engineering-audit",
-    "./skills/engineering/rust-sqlx-engineering-fix"
+    "./skills/engineering/rust-sqlx-engineering-fix",
+    "./skills/engineering/observability-logging-tracing-engineering-audit",
+    "./skills/engineering/observability-logging-tracing-engineering-fix"
   ],
   "commands": "./commands/",
   "hooks": "./hooks/hooks.json"

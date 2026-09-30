@@ -21,6 +21,8 @@ One-time install → available in all local Cursor projects via User-scope plugi
 - `/rust-rig-agentic-engineering-fix` — controlled remediation against an open audit in `docs/engineering-audits/rig/`
 - `/rust-sqlx-engineering-audit` — evidence-based SQLx/PostgreSQL audit (`skills/engineering/rust-sqlx-engineering-audit/`; standard body in `skills/engineering/_standards/rust-sqlx-postgresql-engineering-standard.md` must stay in sync with `rules/rust-sqlx-engineering-standard.mdc`)
 - `/rust-sqlx-engineering-fix` — controlled remediation against an open audit in `docs/engineering-audits/sqlx/`
+- `/observability-logging-tracing-engineering-audit` — evidence-based observability, logging, and tracing audit (`skills/engineering/observability-logging-tracing-engineering-audit/`; standard body in `skills/engineering/_standards/observability-logging-tracing-engineering-standard.md` must stay in sync with `rules/observability-logging-tracing-engineering-standard.mdc`)
+- `/observability-logging-tracing-engineering-fix` — controlled remediation against an open audit in `docs/engineering-audits/observability/`
 - Cloud install/start scripts for minimal per-repo adapters
 
 ## Install (local)

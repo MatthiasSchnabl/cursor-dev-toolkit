@@ -4,6 +4,8 @@ These instructions are mandatory for all HTTP/API code built with Axum, Tokio, T
 
 This standard supplements the general Rust Engineering Standard.
 
+Detailed logging, tracing and observability requirements are defined by the Observability, Logging & Tracing Engineering Standard.
+
 The goal is a production-grade HTTP service that is:
 
 * correct

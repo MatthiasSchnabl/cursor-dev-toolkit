@@ -14,6 +14,8 @@ The goal is production-grade Rust that is:
 * testable
 * understandable by humans and coding agents
 
+Detailed logging, tracing and observability requirements are defined by the Observability, Logging & Tracing Engineering Standard.
+
 Do not optimize for shortest code.
 Do not optimize for cleverness.
 Optimize for correctness, explicit invariants, maintainability, and measured performance.

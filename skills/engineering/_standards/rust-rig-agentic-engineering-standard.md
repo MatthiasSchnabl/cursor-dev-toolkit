@@ -10,6 +10,8 @@ This standard supplements:
 * Testing & Quality Engineering Standard
 * Security & Supply-Chain Engineering Standard
 
+Detailed logging, tracing and observability requirements are defined by the Observability, Logging & Tracing Engineering Standard.
+
 It defines additional requirements for:
 
 * LLM integration

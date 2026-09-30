@@ -8,6 +8,8 @@ This standard supplements:
 * the Rust Axum Engineering Standard
 * the Rust SQLx + PostgreSQL Engineering Standard
 
+Detailed logging, tracing and observability requirements are defined by the Observability, Logging & Tracing Engineering Standard.
+
 The goal is software whose behavior is:
 
 * correct
