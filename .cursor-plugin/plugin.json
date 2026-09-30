@@ -14,7 +14,17 @@
   "skills": [
     "./skills/gbrain",
     "./skills/graphify",
-    "./skills/engineering/rust-engineering"
+    "./skills/engineering/rust-engineering",
+    "./skills/engineering/rust-axum-engineering-audit",
+    "./skills/engineering/rust-axum-engineering-fix",
+    "./skills/engineering/testing-quality-engineering-audit",
+    "./skills/engineering/testing-quality-engineering-fix",
+    "./skills/engineering/security-supply-chain-engineering-audit",
+    "./skills/engineering/security-supply-chain-engineering-fix",
+    "./skills/engineering/rust-rig-agentic-engineering-audit",
+    "./skills/engineering/rust-rig-agentic-engineering-fix",
+    "./skills/engineering/rust-sqlx-engineering-audit",
+    "./skills/engineering/rust-sqlx-engineering-fix"
   ],
   "commands": "./commands/",
   "hooks": "./hooks/hooks.json"

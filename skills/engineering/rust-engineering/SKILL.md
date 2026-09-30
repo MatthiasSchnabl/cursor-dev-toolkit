@@ -1,11 +1,13 @@
 ---
 name: rust-engineering
 description: >
-  Audit and remediate Rust code against the repository's canonical Rust Engineering Standard.
-  Use for repository-wide or scoped Rust engineering audits covering correctness, type safety,
-  ownership, borrowing, allocations, error handling, unsafe code, concurrency, idiomatic Rust,
-  maintainability and performance. Audit is the default operation. Fix operations are allowed
-  only when a completed open audit already exists and must resolve tracked findings from that audit.
+  Shared process for /rust-engineering-audit and /rust-engineering-fix.
+  Evidence-based Rust engineering audits and controlled remediation against the
+  canonical Rust Engineering Standard, covering correctness, type safety,
+  ownership, borrowing, allocations, error handling, unsafe code, concurrency,
+  idiomatic Rust, maintainability and performance. Audit never remediates.
+  Fix is allowed only when a completed open audit already exists and must
+  resolve tracked findings from that audit.
 ---
 
 # Rust Engineering Audit & Remediation
@@ -26,48 +28,33 @@ Do not duplicate or reinterpret the standard unless necessary to apply it to con
 
 # 1. Operations
 
-This skill supports exactly two operations:
+This skill supports exactly two operations. Each has its own command:
 
 ```text
-audit
-fix
+/rust-engineering-audit  →  audit
+/rust-engineering-fix    →  fix
 ```
 
-## Default
+There is no combined `/rust-engineering` command.
 
-If no operation is explicitly requested:
-
-```text
-audit
-```
-
-is mandatory.
-
-Examples:
-
-```text
-/rust-engineering
-/rust-engineering audit
-```
-
-both mean:
+## /rust-engineering-audit
 
 ```text
 perform a fresh Rust engineering audit
 ```
 
-A request such as:
+Never start a fix from this command.
 
-```text
-/rust-engineering fix
-```
-
-means:
+## /rust-engineering-fix
 
 ```text
 locate the newest eligible open Rust audit
 and remediate only findings recorded in that audit
 ```
+
+Never silently start an audit as part of a fix.
+
+If the user writes the old forms `/rust-engineering audit` or `/rust-engineering fix`, map them to `/rust-engineering-audit` and `/rust-engineering-fix`. A bare `/rust-engineering` is not a valid invocation; ask which command, unless the user clearly asked only for an audit.
 
 ---
 
@@ -111,7 +98,7 @@ and report:
 
 ```text
 No open Rust engineering audit is available.
-Run /rust-engineering audit first.
+Run /rust-engineering-audit first.
 ```
 
 Do not invent findings in fix mode.
@@ -1509,7 +1496,7 @@ updated_at:
 
 A resolved audit is immutable as an implementation baseline except for administrative metadata.
 
-A later `/rust-engineering fix` must NOT select it.
+A later `/rust-engineering-fix` must NOT select it.
 
 If future repository changes reintroduce the same problem, a new audit must discover it again.
 

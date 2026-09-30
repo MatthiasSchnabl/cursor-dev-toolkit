@@ -3,42 +3,50 @@ $ErrorActionPreference = "Stop"
 
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $PluginDest = Join-Path $env:USERPROFILE ".cursor\plugins\local\cursor-dev-toolkit"
+$ExcludeDirs = @('.git')
 
 function Log($msg) { Write-Host "install: $msg" }
+
+function Copy-PluginTree {
+    param(
+        [string]$Source,
+        [string]$Destination
+    )
+
+    if (Test-Path $Destination) {
+        Remove-Item $Destination -Recurse -Force
+    }
+
+    New-Item -ItemType Directory -Path $Destination -Force | Out-Null
+
+    $excludeArgs = $ExcludeDirs | ForEach-Object { "/XD", $_ }
+    & robocopy $Source $Destination /MIR /NFL /NDL /NJH /NJS /NC /NS @excludeArgs | Out-Null
+    if ($LASTEXITCODE -ge 8) {
+        throw "failed to copy plugin tree (robocopy exit $LASTEXITCODE)"
+    }
+
+    Log "copied $Source -> $Destination"
+}
 
 $parent = Split-Path -Parent $PluginDest
 if (-not (Test-Path $parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
 
 if (Test-Path $PluginDest) {
-    $rootResolved = (Resolve-Path $Root).Path
-    $destResolved = (Resolve-Path $PluginDest).Path
-    if ($destResolved -eq $rootResolved) {
-        Log "plugin already installed at $PluginDest"
+    $item = Get-Item $PluginDest -Force
+    if ($item.LinkType -in @('SymbolicLink', 'Junction')) {
+        Log "removing external link (Cursor rejects plugins outside plugins/local)"
+        Remove-Item $PluginDest -Force -Recurse
     } else {
-        $item = Get-Item $PluginDest -Force
-        if ($item.LinkType -in @('SymbolicLink', 'Junction')) {
-            Remove-Item $PluginDest -Force -Recurse
-        } else {
-            throw "refusing to overwrite existing $PluginDest"
+        $manifest = Join-Path $PluginDest ".cursor-plugin\plugin.json"
+        if (Test-Path $manifest) {
+            Log "refreshing plugin copy at $PluginDest"
         }
+        Copy-PluginTree -Source $Root -Destination $PluginDest
     }
 }
 
 if (-not (Test-Path $PluginDest)) {
-    try {
-        New-Item -ItemType SymbolicLink -Path $PluginDest -Target $Root -Force | Out-Null
-        Log "linked $PluginDest -> $Root"
-    } catch {
-        Log "symlink failed ($($_.Exception.Message)); trying directory junction..."
-        cmd /c mklink /J "$PluginDest" "$Root" | Out-Null
-        if (-not (Test-Path $PluginDest)) {
-            Log "junction failed; copying plugin tree..."
-            Copy-Item -Path $Root -Destination $PluginDest -Recurse -Force
-            Log "copied $Root -> $PluginDest"
-        } else {
-            Log "junctioned $PluginDest -> $Root"
-        }
-    }
+    Copy-PluginTree -Source $Root -Destination $PluginDest
 }
 
 function To-BashPath([string]$Path) {
@@ -71,4 +79,7 @@ Write-Host 'Next steps:'
 Write-Host '  1. Cursor -> Developer: Reload Window'
 Write-Host '  2. Customize -> confirm cursor-dev-toolkit under User scope'
 Write-Host '  3. Run scripts/verify.sh via Git Bash'
+Write-Host ''
+Write-Host 'Note: Windows copies the plugin into plugins/local (no symlinks).'
+Write-Host 'Re-run install.ps1 after editing the toolkit repo to refresh the copy.'
 Write-Host ''
