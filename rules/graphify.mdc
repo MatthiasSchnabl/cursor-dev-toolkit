@@ -1,11 +1,11 @@
 ---
 description: Graphify structural navigation for the current repository
-alwaysApply: false
+alwaysApply: true
 ---
 
 When exploring code structure or dependencies in the current workspace:
 
-1. Check if `graphify-out/graph.json` exists. If missing, run `graphify extract . --code-only --no-cluster`.
+1. Check if `graphify-out/graph.json` exists. If missing, run `graphify extract . --code-only --no-cluster`. If `graphify` is not on PATH, use `%USERPROFILE%\.local\bin\graphify.exe`.
 2. Prefer `graphify query`, `graphify path`, or `graphify explain` before broad grep/read exploration.
 3. Verify conclusions against source code, schemas, and tests.
 4. After structural code changes: `graphify update . --no-cluster`

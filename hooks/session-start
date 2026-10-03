@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# SessionStart: inject the toolkit duty. Do not run graphify or gbrain here.
+set -euo pipefail
+
+export PATH="$HOME/.local/bin:$HOME/.bun/bin:$PATH"
+
+missing=()
+for cmd in bun graphify gbrain; do
+  command -v "$cmd" >/dev/null 2>&1 || missing+=("$cmd")
+done
+
+duty='cursor-dev-toolkit duty for every Plan and Agent prompt:
+
+Before CreatePlan or any file edit:
+- Query GBrain about the task first. If the result is empty, say so and continue from the source tree.
+- Graphify: if `graphify` is not on PATH, use `%USERPROFILE%\.local\bin\graphify.exe` on Windows or `$HOME/.local/bin/graphify` elsewhere. If graphify-out/graph.json is missing, run `graphify extract . --code-only --no-cluster` first. Run `graphify query` before a broad structural search.
+- Read the matching Superpowers skill: writing-plans before a plan, test-driven-development before implementation, systematic-debugging for a bug, verification-before-completion before claiming the work is done.
+- Use Context7 when the task depends on a library, SDK, API, or CLI.
+- Before the first edit, read the matching engineering standard.
+- After a change, review, audit, or fix, read the matching gstack skill unless the active engineering-fix skill forbids that extra review.
+
+A pure comprehension question that does not involve code, architecture, or a plan may be answered without those runs.'
+
+if [[ ${#missing[@]} -gt 0 ]]; then
+  duty+=$'\n\n'"cursor-dev-toolkit: missing on PATH: ${missing[*]}. Run /tooling-setup or scripts/bootstrap.sh"
+fi
+
+escape_for_json() {
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  s="${s//$'\n'/\\n}"
+  s="${s//$'\r'/\\r}"
+  s="${s//$'\t'/\\t}"
+  printf '%s' "$s"
+}
+
+escaped=$(escape_for_json "$duty")
+printf '{\n  "additional_context": "%s"\n}\n' "$escaped"
+exit 0

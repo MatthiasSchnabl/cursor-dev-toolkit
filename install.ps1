@@ -31,7 +31,13 @@ function Copy-PluginTree {
 $parent = Split-Path -Parent $PluginDest
 if (-not (Test-Path $parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
 
-if (Test-Path $PluginDest) {
+$rootResolved = (Resolve-Path $Root).Path
+$destResolved = $null
+if (Test-Path $PluginDest) { $destResolved = (Resolve-Path $PluginDest).Path }
+
+if ($destResolved -and ($destResolved -eq $rootResolved)) {
+    Log "checkout is already $PluginDest; refusing to copy the plugin over itself"
+} elseif (Test-Path $PluginDest) {
     $item = Get-Item $PluginDest -Force
     if ($item.LinkType -in @('SymbolicLink', 'Junction')) {
         Log "removing external link (Cursor rejects plugins outside plugins/local)"
@@ -48,6 +54,52 @@ if (Test-Path $PluginDest) {
 if (-not (Test-Path $PluginDest)) {
     Copy-PluginTree -Source $Root -Destination $PluginDest
 }
+
+function Add-UserPathEntry {
+    param([string]$Entry)
+    $current = [Environment]::GetEnvironmentVariable('Path', 'User')
+    if ([string]::IsNullOrEmpty($current)) { $current = '' }
+    $present = $current.Split(';') | Where-Object { $_.TrimEnd('\') -eq $Entry.TrimEnd('\') }
+    if ($present) {
+        Log "user PATH already contains $Entry"
+        return
+    }
+    $updated = if ([string]::IsNullOrEmpty($current)) { $Entry } else { "$Entry;$current" }
+    [Environment]::SetEnvironmentVariable('Path', $updated, 'User')
+    Log "prepended $Entry to the user PATH"
+}
+
+function Install-UserToolingHook {
+    $cursorHome = Join-Path $env:USERPROFILE '.cursor'
+    $hooksDir = Join-Path $cursorHome 'hooks'
+    New-Item -ItemType Directory -Path $hooksDir -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $Root 'hooks\require-tooling.ps1') -Destination (Join-Path $hooksDir 'require-tooling.ps1') -Force
+
+    $hooksFile = Join-Path $cursorHome 'hooks.json'
+    $command = 'powershell -NoProfile -ExecutionPolicy Bypass -File ./hooks/require-tooling.ps1'
+    $matcher = '^(CreatePlan|Write|StrReplace|Delete|EditNotebook)$'
+    $doc = $null
+    if (Test-Path $hooksFile) {
+        $doc = Get-Content -LiteralPath $hooksFile -Raw | ConvertFrom-Json
+    }
+    if (-not $doc) {
+        $doc = [pscustomobject]@{ version = 1; hooks = [pscustomobject]@{} }
+    }
+    if (-not $doc.hooks) {
+        $doc | Add-Member -NotePropertyName hooks -NotePropertyValue ([pscustomobject]@{}) -Force
+    }
+    $existing = @()
+    if ($doc.hooks.preToolUse) { $existing = @($doc.hooks.preToolUse) }
+    $kept = @($existing | Where-Object { $_.command -ne $command })
+    $entry = [pscustomobject]@{ command = $command; matcher = $matcher }
+    $doc.hooks.preToolUse = @($kept + $entry)
+    $json = $doc | ConvertTo-Json -Depth 6
+    [System.IO.File]::WriteAllText($hooksFile, $json)
+    Log "installed user preToolUse hook at $hooksFile"
+}
+
+Add-UserPathEntry (Join-Path $env:USERPROFILE '.local\bin')
+Install-UserToolingHook
 
 function To-BashPath([string]$Path) {
     $resolved = (Resolve-Path $Path).Path

@@ -1,35 +1,28 @@
 ---
-description: Global development tool routing for GBrain, Graphify, Superpowers, and gstack
+description: Global development tool routing for GBrain, Graphify, Superpowers, gstack, and Context7
 alwaysApply: true
 ---
 
 # Engineering context and tool routing
+
+This checklist applies to every Plan-mode and Agent-mode prompt. A pure comprehension question that does not involve code, architecture, or a plan may be answered without these runs.
+
+Before `CreatePlan` or any file edit:
+
+1. Query GBrain about the task (`user-gbrain`). It holds prior decisions that are not in the code. If the result is empty, say so and continue from the source tree.
+2. Graphify for structure and impact. If `graphify` is not on PATH, use `%USERPROFILE%\.local\bin\graphify.exe`. If `graphify-out/graph.json` is missing, run `graphify extract . --code-only --no-cluster` first. Run `graphify query` before a broad structural search.
+3. Read and follow the matching Superpowers skill. `writing-plans` before a plan. `test-driven-development` before implementation. `systematic-debugging` for a bug. `verification-before-completion` before claiming the work is done. Do not wrap or replace its bootstrap.
+4. Use Context7 (`user-Context7`) when the task depends on a library, SDK, API, or CLI, before answering from memory.
+5. Before the first edit of the affected files, read the matching engineering standard. The short summary below does not replace that file.
+6. After a change, review, audit, or fix, read and follow the matching gstack skill (`/gstack-review`, `/gstack-qa`, `/gstack-investigate`), unless the active engineering-fix skill forbids that extra review.
 
 | Tool | Role |
 |------|------|
 | **GBrain** | Durable project knowledge, history, previous decisions |
 | **Graphify** | Structural codebase understanding and change-impact analysis |
 | **Superpowers** | Engineering method: planning, TDD, debugging, verification |
-| **gstack** | Selective additional review / QA when complexity or risk justifies it |
-
-## When to use each tool
-
-**GBrain** — prior decisions, historical constraints, conventions not in code. Not for source-code search.
-
-**Graphify** — architecture discovery, dependencies, change impact. Run `graphify query` before broad grep on structural questions. Graph is per-repo at `graphify-out/`.
-
-**Superpowers** — process discipline (`writing-plans`, `test-driven-development`, `systematic-debugging`, `verification-before-completion`). Do not wrap or replace its bootstrap.
-
-**gstack** — selective review/QA (`/gstack-review`, `/gstack-qa`, `/gstack-investigate`). Not mandatory per slice.
-
-## Avoid tool inflation
-
-Do not chain all four tools for every small change.
-
-- Small bug: Superpowers debugging + targeted tests may suffice.
-- Architecture change: GBrain + Graphify + Superpowers planning + optional gstack review.
-- Historical question: GBrain alone may suffice.
-- Dependency question: Graphify alone may suffice.
+| **gstack** | Review and QA after a change, review, audit, or fix |
+| **Context7** | Current library, SDK, API, and CLI documentation |
 
 ## Rust
 
