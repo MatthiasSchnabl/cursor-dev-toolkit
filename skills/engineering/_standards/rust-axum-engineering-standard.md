@@ -1,5 +1,21 @@
 # Rust Axum Engineering Standard
 
+## Contents
+
+- §§1–10: Priority Order → Application State Must Not Become a Service Locator
+- §§11–20: Dependency Injection → Middleware Ordering Is Architecture
+- §§21–30: Timeout Policy → Backpressure and Resource Protection
+- §§31–40: Concurrency Limits → Idempotency
+- §§41–50: Pagination → Graceful Shutdown
+- §§51–60: Observability → Integration Tests
+- §§61–70: Database Tests → WebSockets
+- §§71–80: Server-Sent Events → Multi-Tenancy
+- §§81–90: Pagination Tokens and Cursors → Binary Payloads
+- §§91–100: Schema Evolution → Final Rule
+
+> Navigation: use this map to load only the sections required for the current phase. Do not preload the whole file unless the task genuinely requires it.
+
+
 These instructions are mandatory for all HTTP/API code built with Axum, Tokio, Tower, and related libraries in this repository.
 
 This standard supplements the general Rust Engineering Standard.
