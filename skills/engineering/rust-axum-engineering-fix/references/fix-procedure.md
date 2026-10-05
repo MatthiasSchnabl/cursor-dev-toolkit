@@ -33,7 +33,7 @@ The canonical engineering standard is:
 
 `../_standards/rust-axum-engineering-standard.md`
 
-Read that standard completely before modifying source. The Axum standard supplements the general Rust Engineering Standard; do not resolve an Axum finding by introducing a known Rust-engineering violation.
+Use the standard's **Contents** map first and load the sections relevant to each recorded finding before modifying its scope. The Axum standard supplements the general Rust Engineering Standard; do not resolve an Axum finding by introducing a known Rust-engineering violation.
 
 ---
 
