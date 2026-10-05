@@ -16,7 +16,7 @@ Locate the installed plugin root, normally:
 
 Then execute:
 
-`"$TOOLKIT_ROOT/scripts/verify-engineering-context.sh"`
+`bash "$TOOLKIT_ROOT/scripts/verify-engineering-context.sh"`
 
 If the source checkout lives outside Cursor's local plugin directory, run the normal installer first so the local plugin copy is refreshed.
 
@@ -30,6 +30,7 @@ The doctor verifies:
 
 - plugin manifest/version consistency,
 - required compact engineering rule anchors,
+- required engineering skills are registered in the plugin manifest and explicit-only,
 - every engineering `SKILL.md` is below 500 lines,
 - long references expose `## Contents` within the first 100 lines,
 - SessionStart injects the engineering context anchor,
