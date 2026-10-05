@@ -22,9 +22,9 @@ This compact rule preserves the existing Cursor auto-attach trigger without load
 
 ## Detailed standard
 
-For material Rust creation, modification, review, or refactoring, read relevant sections of:
+For material Rust creation, modification, review, or refactoring, read relevant sections from the installed plugin root:
 
-`skills/engineering/rust-engineering/references/rust-engineering-standard.md`
+`$CURSOR_DEV_TOOLKIT_ROOT/skills/engineering/rust-engineering/references/rust-engineering-standard.md`
 
 Read its **Contents** first and load only sections needed for the task.
 
