@@ -31,7 +31,7 @@ It MUST NOT perform a new audit.
 
 The canonical engineering standard is:
 
-`../_standards/rust-sqlx-postgresql-engineering-standard.md`
+`../../_standards/rust-sqlx-postgresql-engineering-standard.md`
 
 Use the standard's **Contents** map first and load the sections relevant to each recorded finding before modifying its scope. The SQLx standard supplements the Rust, Axum, Testing, Security and Rig standards; do not resolve a SQLx finding by introducing a known Rust-, Axum-, testing-, security- or Rig-engineering violation.
 
