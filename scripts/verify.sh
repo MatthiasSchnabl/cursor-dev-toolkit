@@ -42,6 +42,19 @@ command -v graphify >/dev/null 2>&1 || fail "graphify not on PATH"
 [[ "$(graphify --version 2>/dev/null | awk '{print $NF}')" == "$GRAPHIFY_VERSION" ]] || fail "graphify version mismatch"
 pass "graphify $GRAPHIFY_VERSION"
 
+graphify_sql_tmp="$(mktemp -d)"
+trap 'rm -rf "$graphify_sql_tmp"' EXIT
+printf '%s\n' 'CREATE TABLE toolkit_graphify_sql_probe (id INTEGER PRIMARY KEY);' >"$graphify_sql_tmp/schema.sql"
+(
+  cd "$graphify_sql_tmp"
+  graphify extract schema.sql --no-cluster >/dev/null 2>&1
+) || fail "graphify SQL extraction unavailable (install graphifyy[sql])"
+[[ -f "$graphify_sql_tmp/graphify-out/graph.json" ]] ||
+  fail "graphify SQL probe did not produce graph.json"
+rm -rf "$graphify_sql_tmp"
+trap - EXIT
+pass "graphify SQL extraction"
+
 [[ -d "$GSTACK_DIR/.git" ]] || fail "gstack missing"
 [[ "$(git -C "$GSTACK_DIR" rev-parse HEAD)" == "$GSTACK_REF" ]] || fail "gstack ref mismatch"
 pass "gstack at $GSTACK_REF"
@@ -134,20 +147,61 @@ command -v gbrain >/dev/null 2>&1 || fail "gbrain not on PATH"
 [[ "$(git -C "$GBRAIN_DIR" rev-parse HEAD)" == "$GBRAIN_REF" ]] || fail "gbrain ref mismatch"
 pass "GBrain at $GBRAIN_REF"
 
+GBRAIN_HOME_DIR="${GBRAIN_HOME:-$HOME/.gbrain}"
+GBRAIN_CONFIG_FILE="$GBRAIN_HOME_DIR/config.json"
+gbrain_config_source=""
+
 if [[ -n "${GBRAIN_DATABASE_URL:-}" ]]; then
-  info "GBRAIN_DATABASE_URL: configured"
+  gbrain_config_source="env:GBRAIN_DATABASE_URL"
+elif [[ -f "$GBRAIN_CONFIG_FILE" ]]; then
+  gbrain_file_engine="$(
+    bun -e '
+      try {
+        const path = process.argv[1];
+        const cfg = JSON.parse(await Bun.file(path).text());
+        if (typeof cfg.database_url === "string" && cfg.database_url.length > 0) {
+          process.stdout.write("config-file:database_url");
+        } else if (typeof cfg.database_path === "string" && cfg.database_path.length > 0) {
+          process.stdout.write("config-file:database_path");
+        }
+      } catch {}
+    ' "$GBRAIN_CONFIG_FILE"
+  )"
+  [[ -n "$gbrain_file_engine" ]] && gbrain_config_source="$gbrain_file_engine"
+fi
+
+if [[ -n "$gbrain_config_source" ]]; then
+  info "GBrain runtime config: $gbrain_config_source"
   doctor_json="$(mktemp)"
-  gbrain doctor --json >"$doctor_json" 2>/dev/null || true
-  if [[ -s "$doctor_json" ]] && command -v jq >/dev/null 2>&1; then
-    conn="$(jq -r '.checks[] | select(.name=="connection") | .status' "$doctor_json" 2>/dev/null | head -1)"
-    [[ "$conn" == "ok" ]] && pass "GBrain connection ok" || fail "GBrain connection failed"
-  else
-    skip "GBrain doctor parse skipped"
-  fi
+  gbrain doctor --fast --json >"$doctor_json" 2>/dev/null || true
+
+  [[ -s "$doctor_json" ]] || {
+    rm -f "$doctor_json"
+    fail "GBrain doctor produced no JSON"
+  }
+
+  conn="$(
+    bun -e '
+      try {
+        const path = process.argv[1];
+        const report = JSON.parse(await Bun.file(path).text());
+        const check = Array.isArray(report.checks)
+          ? report.checks.find((item) => item?.name === "connection")
+          : undefined;
+        process.stdout.write(check?.status ?? "missing");
+      } catch {
+        process.stdout.write("invalid-json");
+      }
+    ' "$doctor_json"
+  )"
   rm -f "$doctor_json"
+
+  [[ "$conn" == "ok" ]] &&
+    pass "GBrain connection ok" ||
+    fail "GBrain connection check: $conn"
 else
-  info "GBRAIN_DATABASE_URL: missing"
-  skip "GBrain runtime (no secret)"
+  info "GBrain runtime config: not found in GBRAIN_DATABASE_URL or $GBRAIN_CONFIG_FILE"
+  skip "GBrain runtime (no configured brain detected)"
 fi
 
 if [[ "$CHECK_PROJECT_GRAPH" -eq 1 ]]; then
