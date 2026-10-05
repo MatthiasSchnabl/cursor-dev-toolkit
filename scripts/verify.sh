@@ -32,6 +32,8 @@ done
 [[ -f "$PLUGIN_DIR/.cursor-plugin/plugin.json" ]] || fail "toolkit plugin missing at $PLUGIN_DIR"
 pass "toolkit plugin at $PLUGIN_DIR"
 
+bash "$SCRIPT_DIR/verify-engineering-context.sh"
+
 command -v bun >/dev/null 2>&1 || fail "bun not on PATH"
 [[ "$(bun --version)" == "$BUN_VERSION" ]] || fail "bun version mismatch"
 pass "bun $BUN_VERSION"
