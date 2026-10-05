@@ -1,55 +1,55 @@
 ---
-description: Global development tool routing for GBrain, Graphify, Superpowers, gstack, and Context7
+description: Global development workflow and engineering-context anchor
 alwaysApply: true
 ---
 
-# Engineering context and tool routing
+# Cursor dev toolkit — always-on engineering anchor
 
-This checklist applies to every Plan-mode and Agent-mode prompt. A pure comprehension question that does not involve code, architecture, or a plan may be answered without these runs.
+This rule is intentionally short and always applied. Detailed engineering knowledge is loaded progressively from plugin references.
 
-Before `CreatePlan` or any file edit:
+## Before planning or editing
 
-1. Query GBrain about the task (`user-gbrain`). It holds prior decisions that are not in the code. If the result is empty, say so and continue from the source tree.
-2. Graphify for structure and impact. If `graphify` is not on PATH, use `%USERPROFILE%\.local\bin\graphify.exe`. If `graphify-out/graph.json` is missing, run `graphify extract . --code-only --no-cluster` first. Run `graphify query` before a broad structural search.
-3. Read and follow the matching Superpowers skill. `writing-plans` before a plan. `test-driven-development` before implementation. `systematic-debugging` for a bug. `verification-before-completion` before claiming the work is done. Do not wrap or replace its bootstrap.
-4. Use Context7 (`user-Context7`) when the task depends on a library, SDK, API, or CLI, before answering from memory.
-5. Before the first edit of the affected files, read the matching engineering standard. The short summary below does not replace that file.
-6. After a change, review, audit, or fix, read and follow the matching gstack skill (`/gstack-review`, `/gstack-qa`, `/gstack-investigate`), unless the active engineering-fix skill forbids that extra review.
+For non-trivial code or architecture work:
 
-| Tool | Role |
-|------|------|
-| **GBrain** | Durable project knowledge, history, previous decisions |
-| **Graphify** | Structural codebase understanding and change-impact analysis |
-| **Superpowers** | Engineering method: planning, TDD, debugging, verification |
-| **gstack** | Review and QA after a change, review, audit, or fix |
-| **Context7** | Current library, SDK, API, and CLI documentation |
+1. Query GBrain for prior project decisions. If empty, continue from repository evidence.
+2. Use Graphify for structural/change-impact questions before broad source-tree searching.
+3. Follow the matching Superpowers method:
+   - planning → `writing-plans`
+   - implementation → `test-driven-development`
+   - bug investigation → `systematic-debugging`
+   - closeout → `verification-before-completion`
+4. Use Context7 when behavior depends on a current library, SDK, API, or CLI.
+5. Before the first material edit, read the matching compact engineering rule and relevant sections of its canonical standard.
+6. After material changes, use the matching gstack review/QA flow unless the active engineering-fix procedure explicitly forbids extra review.
 
-## Rust
+Pure comprehension questions that do not involve code, architecture, planning, review, audit, or edits do not require this workflow.
 
-When creating, modifying, reviewing, or refactoring Rust, follow `rust-engineering-standard.mdc` (plugin rule; attaches on `*.rs` / Cargo files). Correctness, memory/concurrency safety, and explicit invariants come before cleverness or hypothetical performance. Do not use `unwrap()`/`expect()` for expected runtime failure.
+## Engineering standard routing
 
-HTTP/API with Axum, Tokio, and Tower additionally follows `rust-axum-engineering-standard.mdc`. Handlers are transport adapters: extract, invoke one application operation, map the result. Domain types must not return HTTP status codes.
+The auto-attached `*-engineering-standard.mdc` files are deliberately compact anchors. They preserve reliable Cursor triggering without injecting complete standards.
 
-Persistence with SQLx and PostgreSQL follows `rust-sqlx-engineering-standard.mdc`. SQL is architecture, not an implementation detail. Domain types must not depend on `PgPool` / `Transaction`.
+Canonical detailed standards:
 
-Testing and quality follow `testing-quality-engineering-standard.mdc`. Test behavior and invariants, not coverage percentage. Use the lowest layer that reliably proves the behavior.
+- Rust → `skills/engineering/rust-engineering/references/rust-engineering-standard.md`
+- Axum/HTTP → `skills/engineering/_standards/rust-axum-engineering-standard.md`
+- SQLx/PostgreSQL → `skills/engineering/_standards/rust-sqlx-postgresql-engineering-standard.md`
+- Testing/Quality → `skills/engineering/_standards/testing-quality-engineering-standard.md`
+- Security/Supply Chain → `skills/engineering/_standards/security-supply-chain-engineering-standard.md`
+- Rig/Agentic → `skills/engineering/_standards/rust-rig-agentic-engineering-standard.md`
+- Observability → `skills/engineering/_standards/observability-logging-tracing-engineering-standard.md`
 
-Security and supply chain follow `security-supply-chain-engineering-standard.mdc`. Least privilege, fail closed; secrets must not be logged or committed.
+For any long reference: read **Contents** first, then load only sections needed for the current phase.
 
-Rig/agentic systems additionally follow `rust-rig-agentic-engineering-standard.mdc`. Rig is orchestration, not architecture. Domain types must not depend on `rig::Agent`.
+## Audit / fix invariant
 
-Logging, tracing, and observability follow `observability-logging-tracing-engineering-standard.mdc`. Spans, structured fields, and filters are the mechanism; domain standards keep their own policy.
+`audit → persistent ledger → fix against open/partial audit → verification → resolved`
 
-## Engineering audits
+A fix never invents findings, never silently re-audits, and never reuses a resolved audit.
 
-Repository-wide or scoped engineering audits use plugin skills under `skills/engineering/`.
+## Local installation health
 
-- Rust: `/rust-engineering-audit` and `/rust-engineering-fix`. Fix is allowed only against a completed open audit in `docs/engineering-audits/rust/`; never invent findings or silently re-audit in fix mode. The process skill reads `references/rust-engineering-standard.md`, which must stay in sync with `rules/rust-engineering-standard.mdc` (same body; the `.mdc` keeps Cursor globs).
-- Axum/HTTP: `/rust-axum-engineering-audit` and `/rust-axum-engineering-fix`. Fix is allowed only against a completed open audit in `docs/engineering-audits/axum/`; never invent findings or silently re-audit in fix mode. Both skills read `skills/engineering/_standards/rust-axum-engineering-standard.md`, which must stay in sync with `rules/rust-axum-engineering-standard.mdc`.
-- Testing: `/testing-quality-engineering-audit` and `/testing-quality-engineering-fix`. Fix is allowed only against a completed open audit in `docs/engineering-audits/testing/`; never invent findings or silently re-audit in fix mode. Both skills read `skills/engineering/_standards/testing-quality-engineering-standard.md`, which must stay in sync with `rules/testing-quality-engineering-standard.mdc`.
-- Security: `/security-supply-chain-engineering-audit` and `/security-supply-chain-engineering-fix`. Fix is allowed only against a completed open audit in `docs/engineering-audits/security/`; never invent findings or silently re-audit in fix mode. Both skills read `skills/engineering/_standards/security-supply-chain-engineering-standard.md`, which must stay in sync with `rules/security-supply-chain-engineering-standard.mdc`. Never reproduce secrets.
-- Rig/agentic: `/rust-rig-agentic-engineering-audit` and `/rust-rig-agentic-engineering-fix`. Fix is allowed only against a completed open audit in `docs/engineering-audits/rig/`; never invent findings or silently re-audit in fix mode. Both skills read `skills/engineering/_standards/rust-rig-agentic-engineering-standard.md`, which must stay in sync with `rules/rust-rig-agentic-engineering-standard.mdc`.
-- SQLx/PostgreSQL: `/rust-sqlx-engineering-audit` and `/rust-sqlx-engineering-fix`. Fix is allowed only against a completed open audit in `docs/engineering-audits/sqlx/`; never invent findings or silently re-audit in fix mode. Both skills read `skills/engineering/_standards/rust-sqlx-postgresql-engineering-standard.md`, which must stay in sync with `rules/rust-sqlx-engineering-standard.mdc`.
-- Observability, logging, and tracing: `/observability-logging-tracing-engineering-audit` and `/observability-logging-tracing-engineering-fix`. Fix is allowed only against a completed open audit in `docs/engineering-audits/observability/`; never invent findings or silently re-audit in fix mode. Both skills read `skills/engineering/_standards/observability-logging-tracing-engineering-standard.md`, which must stay in sync with `rules/observability-logging-tracing-engineering-standard.mdc`.
+The plugin must be loaded from `~/.cursor/plugins/local/cursor-dev-toolkit`.
 
-Project-specific rules in `AGENTS.md` take precedence over this global routing.
+If rules or skills appear missing/stale, run `/engineering-context-doctor` or `scripts/verify.sh`.
+
+The SessionStart hook independently injects installed toolkit version/revision and this routing duty into every new Agent session.
