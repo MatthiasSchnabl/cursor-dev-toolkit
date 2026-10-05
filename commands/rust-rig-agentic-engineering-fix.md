@@ -5,14 +5,14 @@ description: Remediate only findings from the newest eligible open Rust Rig agen
 
 # Rust Rig Agentic Engineering Fix
 
-Read and follow the plugin skill `skills/engineering/rust-rig-agentic-engineering-fix/SKILL.md` completely, including `skills/engineering/_standards/rust-rig-agentic-engineering-standard.md`.
+Follow the plugin skill `skills/engineering/rust-rig-agentic-engineering-fix/SKILL.md`.
+
+The skill uses progressive disclosure: read its compact `SKILL.md` first, then follow direct references by phase. Do **not** preload the complete procedure and canonical standard unless the task genuinely requires all sections.
 
 ## Operation
 
-This command is **fix** only.
+This command is **fix only**.
 
-- Locate the newest eligible open Rust Rig agentic audit and remediate only findings recorded there.
-- Never silently start an audit as part of a fix.
-- If no eligible open audit exists, STOP and report that `/rust-rig-agentic-engineering-audit` must run first.
-
-Write audit updates under `docs/engineering-audits/rig/` in the **current repository**.
+- Remediate only findings from the newest eligible open/partial audit.
+- Never invent findings or silently re-audit.
+- Close findings only after required verification passes.
