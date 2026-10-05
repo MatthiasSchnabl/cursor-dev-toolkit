@@ -1,5 +1,47 @@
 # Rust Engineering Standard
 
+## Contents
+
+- §1: Priority Order
+- §2: General Rust Philosophy
+- §3: Ownership and Borrowing
+- §4: Allocation and Memory Efficiency
+- §5: Type-Driven Design
+- §6: Error Handling
+- §7: Panic Policy
+- §8: Unsafe Rust
+- §9: Concurrency
+- §10: Async Rust
+- §11: Performance
+- §12: Zero-Cost Abstractions
+- §13: DRY and Abstraction
+- §14: Functions and Modules
+- §15: API Design
+- §16: Visibility
+- §17: Dependencies
+- §18: Comments and Documentation
+- §19: Rustdoc
+- §20: LLM / Agent Maintainability
+- §21: Naming
+- §22: Iterators and Collections
+- §23: Serialization and External Boundaries
+- §24: Database Code
+- §25: Security
+- §26: Tests
+- §27: Determinism
+- §28: Refactoring
+- §29: Compiler and Lints
+- §30: Verification
+- §31: Performance Verification
+- §32: Dependency and API Stability
+- §33: Code Review Checklist
+- §34: Prohibited Shortcuts
+- §35: Simplicity Rule
+- §36: Definition of Done
+
+> Navigation: use this map to load only the sections required for the current phase. Do not preload the whole file unless the task genuinely requires it.
+
+
 These instructions are mandatory for all Rust code created, modified, reviewed, or refactored in this repository.
 
 The goal is production-grade Rust that is:
