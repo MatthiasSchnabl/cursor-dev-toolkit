@@ -71,14 +71,14 @@ if (Test-Path $PluginDest) {
     $destResolved = (Resolve-Path $PluginDest).Path
 }
 
-if ($destResolved -and ($destResolved -eq $rootResolved)) {
-    Log "checkout is already $PluginDest; no plugin copy required"
-} elseif (Test-Path $PluginDest) {
+if (Test-Path $PluginDest) {
     $item = Get-Item $PluginDest -Force
     if ($item.LinkType -in @('SymbolicLink', 'Junction')) {
-        Log "removing external link (Cursor skips plugins whose symlink target is outside plugins/local)"
+        Log "replacing external link with a real local plugin copy"
         Remove-Item $PluginDest -Force -Recurse
         Copy-PluginTree -Source $Root -Destination $PluginDest
+    } elseif ($destResolved -and ($destResolved -eq $rootResolved)) {
+        Log "checkout is already $PluginDest; no plugin copy required"
     } else {
         $manifest = Join-Path $PluginDest ".cursor-plugin\plugin.json"
         if (-not (Test-Path $manifest)) {
