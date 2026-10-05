@@ -33,7 +33,7 @@ The canonical engineering standard is:
 
 `../_standards/rust-rig-agentic-engineering-standard.md`
 
-Read that standard completely before modifying source. The Rig standard supplements the Rust, Axum, SQLx, Testing and Security standards; do not resolve a Rig finding by introducing a known Rust-, Axum-, SQLx-, testing- or security-engineering violation.
+Use the standard's **Contents** map first and load the sections relevant to each recorded finding before modifying its scope. The Rig standard supplements the Rust, Axum, SQLx, Testing and Security standards; do not resolve a Rig finding by introducing a known Rust-, Axum-, SQLx-, testing- or security-engineering violation.
 
 ---
 
