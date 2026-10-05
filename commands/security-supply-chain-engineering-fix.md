@@ -5,15 +5,14 @@ description: Remediate only findings from the newest eligible open Security & Su
 
 # Security & Supply-Chain Engineering Fix
 
-Read and follow the plugin skill `skills/engineering/security-supply-chain-engineering-fix/SKILL.md` completely, including `skills/engineering/_standards/security-supply-chain-engineering-standard.md`.
+Follow the plugin skill `skills/engineering/security-supply-chain-engineering-fix/SKILL.md`.
+
+The skill uses progressive disclosure: read its compact `SKILL.md` first, then follow direct references by phase. Do **not** preload the complete procedure and canonical standard unless the task genuinely requires all sections.
 
 ## Operation
 
-This command is **fix** only.
+This command is **fix only**.
 
-- Locate the newest eligible open Security & Supply-Chain audit and remediate only findings recorded there.
-- Never silently start an audit as part of a fix.
-- If no eligible open audit exists, STOP and report that `/security-supply-chain-engineering-audit` must run first.
-- Never reproduce secret values; use `[REDACTED]`.
-
-Write audit updates under `docs/engineering-audits/security/` in the **current repository**.
+- Remediate only findings from the newest eligible open/partial audit.
+- Never invent findings or silently re-audit.
+- Close findings only after required verification passes.
