@@ -1,5 +1,27 @@
 # Rust SQLx + PostgreSQL Engineering Standard
 
+## Contents
+
+- §§1–10: Priority Order → CI Must Detect SQLx Metadata Drift
+- §§11–20: Development Schema Must Match Migrations → Missing Rows Are Not Exceptional Infrastructure Failures
+- §§21–30: Do Not Materialize Large Result Sets Needlessly → Unique Constraints
+- §§31–40: Check Constraints → Acquire Timeout
+- §§41–50: Minimum Connections → Transaction Ownership
+- §§51–60: Executor-Oriented Repository Methods → Lock Rows in Stable Order
+- §§61–70: Optimistic Concurrency → COPY for Large Data Movement
+- §§71–80: Round Trips Are Expensive → Large OFFSET Costs
+- §§81–90: Stable Ordering → Idle Transactions
+- §§91–100: Error Handling → Applied Migrations Are Immutable
+- §§101–110: Migration Naming → No Secrets in Migration Files
+- §§111–120: Prepared Statements → Repository APIs Should Not Mirror Tables Blindly
+- §§121–130: Test Queries Against PostgreSQL → Slow Query Visibility
+- §§131–140: Do Not Log Full SQL With Sensitive Binds → COUNT(*)
+- §§141–150: Existence Checks → Architectural Documentation
+- §§151–160: Code Review Checklist → Definition of Done
+
+> Navigation: use this map to load only the sections required for the current phase. Do not preload the whole file unless the task genuinely requires it.
+
+
 These instructions are mandatory for database access implemented with Rust, SQLx, and PostgreSQL in this repository.
 
 This standard supplements:

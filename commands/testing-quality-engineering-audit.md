@@ -5,13 +5,14 @@ description: Perform a fresh evidence-based testing and quality engineering audi
 
 # Testing & Quality Engineering Audit
 
-Read and follow the plugin skill `skills/engineering/testing-quality-engineering-audit/SKILL.md` completely, including `skills/engineering/_standards/testing-quality-engineering-standard.md`.
+Follow the plugin skill `skills/engineering/testing-quality-engineering-audit/SKILL.md`.
+
+The skill uses progressive disclosure: read its compact `SKILL.md` first, then follow direct references by phase. Do **not** preload the complete procedure and canonical standard unless the task genuinely requires all sections.
 
 ## Operation
 
-This command is **audit** only.
+This command is **audit only**.
 
-- Perform a fresh Testing & Quality engineering audit.
-- Never start a fix from this command.
-- Write audits under `docs/engineering-audits/testing/` in the **current repository**.
-- Do not modify production source, tests, fixtures, snapshots, or CI during audit.
+- Perform a fresh evidence-based audit.
+- Never remediate from this command.
+- Respect the skill's read-only scope and persistent audit-ledger contract.

@@ -3,9 +3,40 @@ $ErrorActionPreference = "Stop"
 
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $PluginDest = Join-Path $env:USERPROFILE ".cursor\plugins\local\cursor-dev-toolkit"
-$ExcludeDirs = @('.git')
+$ExcludeDirs = @('.git', '.cursor-toolkit-install')
 
 function Log($msg) { Write-Host "install: $msg" }
+
+function Write-InstallMarker {
+    param(
+        [string]$Source,
+        [string]$Destination
+    )
+
+    $commit = "unknown"
+    $git = Get-Command git -ErrorAction SilentlyContinue
+    if ($git) {
+        try {
+            $commit = (& git -C $Source rev-parse HEAD).Trim()
+        } catch {
+            $commit = "unknown"
+        }
+    }
+
+    $versionLine = Get-Content -LiteralPath (Join-Path $Source 'versions.env') |
+        Where-Object { $_ -match '^TOOLKIT_VERSION=' } |
+        Select-Object -First 1
+    $version = if ($versionLine) {
+        $versionLine -replace '^TOOLKIT_VERSION="([^"]+)"$', '$1'
+    } else {
+        "unknown"
+    }
+
+    $marker = Join-Path $Destination '.cursor-toolkit-install'
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllLines($marker, @($Source, $commit, $version), $utf8NoBom)
+    Log "wrote install provenance marker"
+}
 
 function Copy-PluginTree {
     param(
@@ -25,45 +56,55 @@ function Copy-PluginTree {
         throw "failed to copy plugin tree (robocopy exit $LASTEXITCODE)"
     }
 
+    Write-InstallMarker -Source $Source -Destination $Destination
     Log "copied $Source -> $Destination"
 }
 
 $parent = Split-Path -Parent $PluginDest
-if (-not (Test-Path $parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
+if (-not (Test-Path $parent)) {
+    New-Item -ItemType Directory -Path $parent -Force | Out-Null
+}
 
 $rootResolved = (Resolve-Path $Root).Path
 $destResolved = $null
-if (Test-Path $PluginDest) { $destResolved = (Resolve-Path $PluginDest).Path }
-
-if ($destResolved -and ($destResolved -eq $rootResolved)) {
-    Log "checkout is already $PluginDest; refusing to copy the plugin over itself"
-} elseif (Test-Path $PluginDest) {
-    $item = Get-Item $PluginDest -Force
-    if ($item.LinkType -in @('SymbolicLink', 'Junction')) {
-        Log "removing external link (Cursor rejects plugins outside plugins/local)"
-        Remove-Item $PluginDest -Force -Recurse
-    } else {
-        $manifest = Join-Path $PluginDest ".cursor-plugin\plugin.json"
-        if (Test-Path $manifest) {
-            Log "refreshing plugin copy at $PluginDest"
-        }
-        Copy-PluginTree -Source $Root -Destination $PluginDest
-    }
+if (Test-Path $PluginDest) {
+    $destResolved = (Resolve-Path $PluginDest).Path
 }
 
-if (-not (Test-Path $PluginDest)) {
+if (Test-Path $PluginDest) {
+    $item = Get-Item $PluginDest -Force
+    if ($item.LinkType -in @('SymbolicLink', 'Junction')) {
+        Log "replacing external link with a real local plugin copy"
+        Remove-Item $PluginDest -Force -Recurse
+        Copy-PluginTree -Source $Root -Destination $PluginDest
+    } elseif ($destResolved -and ($destResolved -eq $rootResolved)) {
+        Log "checkout is already $PluginDest; no plugin copy required"
+    } else {
+        $manifest = Join-Path $PluginDest ".cursor-plugin\plugin.json"
+        if (-not (Test-Path $manifest)) {
+            throw "refusing to overwrite unrelated plugin directory: $PluginDest"
+        }
+        Log "refreshing plugin copy at $PluginDest"
+        Copy-PluginTree -Source $Root -Destination $PluginDest
+    }
+} else {
     Copy-PluginTree -Source $Root -Destination $PluginDest
 }
 
 function Add-UserPathEntry {
     param([string]$Entry)
+
     $current = [Environment]::GetEnvironmentVariable('Path', 'User')
-    if ([string]::IsNullOrEmpty($current)) { $current = '' }
+    if ([string]::IsNullOrEmpty($current)) {
+        $current = ''
+    }
+
     $present = $current.Split(';') | Where-Object { $_.TrimEnd('\') -eq $Entry.TrimEnd('\') }
     if ($present) {
         Log "user PATH already contains $Entry"
         return
     }
+
     $updated = if ([string]::IsNullOrEmpty($current)) { $Entry } else { "$Entry;$current" }
     [Environment]::SetEnvironmentVariable('Path', $updated, 'User')
     Log "prepended $Entry to the user PATH"
@@ -77,25 +118,39 @@ function Install-UserToolingHook {
 
     $hooksFile = Join-Path $cursorHome 'hooks.json'
     $command = 'powershell -NoProfile -ExecutionPolicy Bypass -File ./hooks/require-tooling.ps1'
-    $matcher = '^(CreatePlan|Write|StrReplace|Delete|EditNotebook)$'
+    $matcher = '^(Write|Delete)$'
+
     $doc = $null
     if (Test-Path $hooksFile) {
         $doc = Get-Content -LiteralPath $hooksFile -Raw | ConvertFrom-Json
     }
+
     if (-not $doc) {
         $doc = [pscustomobject]@{ version = 1; hooks = [pscustomobject]@{} }
     }
+
     if (-not $doc.hooks) {
         $doc | Add-Member -NotePropertyName hooks -NotePropertyValue ([pscustomobject]@{}) -Force
     }
+
     $existing = @()
-    if ($doc.hooks.preToolUse) { $existing = @($doc.hooks.preToolUse) }
+    if ($doc.hooks.PSObject.Properties.Name -contains 'preToolUse') {
+        $existing = @($doc.hooks.preToolUse)
+    }
+
     $kept = @($existing | Where-Object { $_.command -ne $command })
     $entry = [pscustomobject]@{ command = $command; matcher = $matcher }
-    $doc.hooks.preToolUse = @($kept + $entry)
+    $updatedHooks = @($kept + $entry)
+
+    if ($doc.hooks.PSObject.Properties.Name -contains 'preToolUse') {
+        $doc.hooks.preToolUse = $updatedHooks
+    } else {
+        $doc.hooks | Add-Member -NotePropertyName preToolUse -NotePropertyValue $updatedHooks
+    }
+
     $json = $doc | ConvertTo-Json -Depth 6
     [System.IO.File]::WriteAllText($hooksFile, $json)
-    Log "installed user preToolUse hook at $hooksFile"
+    Log "installed best-effort user preToolUse hook at $hooksFile"
 }
 
 Add-UserPathEntry (Join-Path $env:USERPROFILE '.local\bin')
@@ -131,7 +186,8 @@ Write-Host 'Next steps:'
 Write-Host '  1. Cursor -> Developer: Reload Window'
 Write-Host '  2. Customize -> confirm cursor-dev-toolkit under User scope'
 Write-Host '  3. Run scripts/verify.sh via Git Bash'
+Write-Host '  4. Run /engineering-context-doctor if rules/skills look stale'
 Write-Host ''
-Write-Host 'Note: Windows copies the plugin into plugins/local (no symlinks).'
-Write-Host 'Re-run install.ps1 after editing the toolkit repo to refresh the copy.'
+Write-Host 'Windows copies the plugin into plugins/local when the source checkout lives elsewhere.'
+Write-Host 'Re-run install.ps1 after editing the toolkit source checkout to refresh the installed copy.'
 Write-Host ''

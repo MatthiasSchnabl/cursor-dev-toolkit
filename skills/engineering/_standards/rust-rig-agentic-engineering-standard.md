@@ -1,5 +1,28 @@
 # Rust Rig Agentic Engineering Standard
 
+## Contents
+
+- §§1–10: Priority Order → Agent Definitions Are Configuration
+- §§11–20: Provider Independence → Turn Budgets
+- §§21–30: Budget Hierarchy → #[rig_tool]
+- §§31–40: PortableTool vs Contextual Tool → Idempotency
+- §§41–50: Tool Names → Refusals
+- §§51–60: Tool Error Information → OutputMode
+- §§61–70: Validate Structured Outputs → Dynamic Retrieval
+- §§71–80: Retrieval Failure → Memory Isolation
+- §§81–90: Memory Poisoning → Agent Harness
+- §§91–100: Harness State → Reliability Metrics
+- §§101–110: Deterministic Tests → Tool Evals
+- §§111–120: Tool Description Evals → Retry Multiplication
+- §§121–130: Error Classification → MCP Tool Changes
+- §§131–140: Secrets → Tool Version Identity
+- §§141–150: No Hidden Agent Mutation → Serde Policy
+- §§151–160: Schemars Policy → CI Gates
+- §§161–169: Eval CI Strategy → Definition of Done
+
+> Navigation: use this map to load only the sections required for the current phase. Do not preload the whole file unless the task genuinely requires it.
+
+
 These instructions are mandatory for agentic systems implemented with Rust and Rig.
 
 This standard supplements:

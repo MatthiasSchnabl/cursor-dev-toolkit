@@ -1,5 +1,41 @@
 # Observability, Logging & Tracing Engineering Standard
 
+## Contents
+
+- §1: Version Discipline
+- §2: Model
+- §3: What a Developer Must Be Able to Answer
+- §4: tracing Is the Mechanism
+- §5: Span Hierarchy
+- §6: Span Names
+- §7: Structured Fields
+- §8: Cardinality
+- §9: Request and Correlation IDs
+- §10: Axum and tower-http 0.6 Order
+- §11: One Instrumentation, Two Formats
+- §12: Runtime Filtering
+- §13: Levels
+- §14: #[instrument]
+- §15: Async
+- §16: Errors
+- §17: SQLx
+- §18: External HTTP
+- §19: Slow Work
+- §20: State Transitions
+- §21: Rig and GenAI
+- §22: OpenTelemetry
+- §23: Configuration
+- §24: Secrets and Personal Data
+- §25: Cost
+- §26: Tests
+- §27: Metrics
+- §28: Anti-Patterns
+- §29: Debugging Checklist
+- §30: Definition of Done
+
+> Navigation: use this map to load only the sections required for the current phase. Do not preload the whole file unless the task genuinely requires it.
+
+
 These instructions are mandatory for logging, tracing, and observability in Rust applications in this repository.
 
 This standard is the canonical cross-cutting source of truth for diagnostic instrumentation. It supplements:

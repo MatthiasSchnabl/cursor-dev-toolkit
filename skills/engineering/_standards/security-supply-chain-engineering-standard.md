@@ -1,5 +1,29 @@
 # Security & Supply-Chain Engineering Standard
 
+## Contents
+
+- §§1–10: Security Priority Order → Do Not Trust Token Algorithms From Input
+- §§11–20: Authorization Must Be Object-Aware → Defense in Depth for Tenant Isolation
+- §§21–30: Service-to-Service Authentication → Secret Rotation
+- §§31–40: Secrets in Errors → Input Validation
+- §§41–50: Length Limits → Command Injection
+- §§51–60: Path Traversal → Cryptography
+- §§61–70: Encryption Is Not Hashing → Serialization
+- §§71–80: Sensitive Fields → Rate Limiting
+- §§81–90: Sensitive Business Flows → Dependency Minimization
+- §§91–100: Prefer Mature Dependencies → Advisory Exceptions
+- §§101–110: Dependency Sources → Vulnerability Scanning Is Not Sufficient
+- §§111–120: Dependency Provenance → CI Actions and External Build Tools
+- §§121–130: Build Artifact Integrity → Fail Closed
+- §§131–140: Default Configuration → Health Endpoints
+- §§141–150: Metrics Endpoints → Secret Leakage Tests
+- §§151–160: Static Analysis → Dependency Inventory
+- §§161–170: Key Compromise → Security Review Checklist
+- §§171–172: Prohibited Default Shortcuts → Definition of Done
+
+> Navigation: use this map to load only the sections required for the current phase. Do not preload the whole file unless the task genuinely requires it.
+
+
 These instructions are mandatory for security-relevant engineering work in this repository.
 
 This standard supplements:
