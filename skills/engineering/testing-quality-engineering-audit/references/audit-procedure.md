@@ -29,7 +29,7 @@ The canonical standard is:
 
 `../_standards/testing-quality-engineering-standard.md`
 
-Read the standard completely before evaluating the repository.
+Use the standard's **Contents** map first and load the sections relevant to the current audit phase. Before closeout, verify that every applicable standard domain was covered.
 
 ---
 
