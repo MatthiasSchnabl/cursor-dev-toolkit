@@ -67,8 +67,8 @@ install_uv() {
 
 install_graphify() {
   ensure_path_entry "$HOME/.local/bin"
-  log "installing graphifyy==${GRAPHIFY_VERSION}"
-  uv tool install --force "graphifyy==${GRAPHIFY_VERSION}"
+  log "installing graphifyy[sql]==${GRAPHIFY_VERSION}"
+  uv tool install --force "graphifyy[sql]==${GRAPHIFY_VERSION}"
   command -v graphify >/dev/null 2>&1 || die "graphify not on PATH"
   local installed
   installed="$(graphify --version 2>/dev/null | awk '{print $NF}')"
