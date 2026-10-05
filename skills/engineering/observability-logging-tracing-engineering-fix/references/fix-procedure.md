@@ -30,7 +30,7 @@ The canonical engineering standard is:
 
 `../_standards/observability-logging-tracing-engineering-standard.md`
 
-Read that standard completely before modifying source. Do not resolve an observability finding by introducing a known Rust, Axum, SQLx, testing, security, or Rig violation.
+Use the standard's **Contents** map first and load the sections relevant to each recorded finding before modifying its scope. Do not resolve an observability finding by introducing a known Rust, Axum, SQLx, testing, security, or Rig violation.
 
 Never reproduce secret values, prompts, tokens, or personal data. Use `[REDACTED]`.
 
