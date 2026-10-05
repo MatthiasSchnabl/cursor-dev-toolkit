@@ -33,7 +33,7 @@ The canonical engineering standard is:
 
 `../_standards/testing-quality-engineering-standard.md`
 
-Read that standard completely before modifying source. Do not resolve a testing finding by introducing a known Rust-, Axum-, SQLx- or security-engineering violation.
+Use the standard's **Contents** map first and load the sections relevant to each recorded finding before modifying its scope. Do not resolve a testing finding by introducing a known Rust-, Axum-, SQLx- or security-engineering violation.
 
 ---
 
