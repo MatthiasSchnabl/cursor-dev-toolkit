@@ -26,7 +26,7 @@ The canonical engineering standard is:
 
 `../_standards/rust-axum-engineering-standard.md`
 
-Read that standard completely before evaluating the repository.
+Use the standard's **Contents** map first and load the sections relevant to the current audit phase. Before closeout, verify that every applicable standard domain was covered.
 
 ---
 
