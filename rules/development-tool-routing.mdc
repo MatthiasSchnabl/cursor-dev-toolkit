@@ -28,15 +28,15 @@ Pure comprehension questions that do not involve code, architecture, planning, r
 
 The auto-attached `*-engineering-standard.mdc` files are deliberately compact anchors. They preserve reliable Cursor triggering without injecting complete standards.
 
-Canonical detailed standards:
+Canonical detailed standards are read from `$CURSOR_DEV_TOOLKIT_ROOT` (set by the SessionStart hook):
 
-- Rust → `skills/engineering/rust-engineering/references/rust-engineering-standard.md`
-- Axum/HTTP → `skills/engineering/_standards/rust-axum-engineering-standard.md`
-- SQLx/PostgreSQL → `skills/engineering/_standards/rust-sqlx-postgresql-engineering-standard.md`
-- Testing/Quality → `skills/engineering/_standards/testing-quality-engineering-standard.md`
-- Security/Supply Chain → `skills/engineering/_standards/security-supply-chain-engineering-standard.md`
-- Rig/Agentic → `skills/engineering/_standards/rust-rig-agentic-engineering-standard.md`
-- Observability → `skills/engineering/_standards/observability-logging-tracing-engineering-standard.md`
+- Rust → `$CURSOR_DEV_TOOLKIT_ROOT/skills/engineering/rust-engineering/references/rust-engineering-standard.md`
+- Axum/HTTP → `$CURSOR_DEV_TOOLKIT_ROOT/skills/engineering/_standards/rust-axum-engineering-standard.md`
+- SQLx/PostgreSQL → `$CURSOR_DEV_TOOLKIT_ROOT/skills/engineering/_standards/rust-sqlx-postgresql-engineering-standard.md`
+- Testing/Quality → `$CURSOR_DEV_TOOLKIT_ROOT/skills/engineering/_standards/testing-quality-engineering-standard.md`
+- Security/Supply Chain → `$CURSOR_DEV_TOOLKIT_ROOT/skills/engineering/_standards/security-supply-chain-engineering-standard.md`
+- Rig/Agentic → `$CURSOR_DEV_TOOLKIT_ROOT/skills/engineering/_standards/rust-rig-agentic-engineering-standard.md`
+- Observability → `$CURSOR_DEV_TOOLKIT_ROOT/skills/engineering/_standards/observability-logging-tracing-engineering-standard.md`
 
 For any long reference: read **Contents** first, then load only sections needed for the current phase.
 
