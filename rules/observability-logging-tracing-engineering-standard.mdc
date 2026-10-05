@@ -21,9 +21,9 @@ Apply when adding/changing logging, tracing, error diagnostics, HTTP request cor
 
 ## Detailed standard
 
-Read relevant sections of:
+Read relevant sections from the installed plugin root:
 
-`skills/engineering/_standards/observability-logging-tracing-engineering-standard.md`
+`$CURSOR_DEV_TOOLKIT_ROOT/skills/engineering/_standards/observability-logging-tracing-engineering-standard.md`
 
 Use its **Contents** map; load only relevant diagnostics sections.
 
