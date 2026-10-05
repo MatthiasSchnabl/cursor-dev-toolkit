@@ -13,6 +13,7 @@ fail() { printf 'engineering-context: [FAIL] %s\n' "$*" >&2; exit 1; }
 pass() { printf 'engineering-context: [PASS] %s\n' "$*"; }
 info() { printf 'engineering-context: [INFO] %s\n' "$*"; }
 
+[[ ! -L "$PLUGIN_DIR" ]] || fail "plugin root is a symlink; install a real directory under plugins/local"
 [[ -f "$PLUGIN_DIR/.cursor-plugin/plugin.json" ]] || fail "plugin manifest missing at $PLUGIN_DIR"
 pass "plugin root: $PLUGIN_DIR"
 
@@ -69,7 +70,7 @@ pass "SessionStart engineering context anchor"
 
 source_root="$TOOLKIT_ROOT"
 if [[ -f "$PLUGIN_DIR/.cursor-toolkit-install" ]]; then
-  marker_source="$(sed -n '1p' "$PLUGIN_DIR/.cursor-toolkit-install")"
+  marker_source="$(sed -n '1p' "$PLUGIN_DIR/.cursor-toolkit-install" | tr -d '\r')"
   if [[ -n "$marker_source" ]]; then source_root="$marker_source"; fi
 fi
 if command -v cygpath >/dev/null 2>&1 && [[ "$source_root" =~ ^[A-Za-z]:\\ ]]; then
@@ -91,7 +92,7 @@ fi
 if git -C "$PLUGIN_DIR" rev-parse HEAD >/dev/null 2>&1; then
   info "installed git revision: $(git -C "$PLUGIN_DIR" rev-parse HEAD)"
 elif [[ -f "$PLUGIN_DIR/.cursor-toolkit-install" ]]; then
-  info "installed source revision: $(sed -n '2p' "$PLUGIN_DIR/.cursor-toolkit-install")"
+  info "installed source revision: $(sed -n '2p' "$PLUGIN_DIR/.cursor-toolkit-install" | tr -d '\r')"
 fi
 
 pass "engineering context verification complete"
