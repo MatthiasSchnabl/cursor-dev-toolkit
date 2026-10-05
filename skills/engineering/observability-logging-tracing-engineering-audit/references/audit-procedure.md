@@ -36,7 +36,7 @@ It MUST NOT fix findings.
 
 The canonical standard is:
 
-`../_standards/observability-logging-tracing-engineering-standard.md`
+`../../_standards/observability-logging-tracing-engineering-standard.md`
 
 Use the standard's **Contents** map first and load the sections relevant to the current audit phase. Before closeout, verify that every applicable standard domain was covered.
 
