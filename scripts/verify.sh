@@ -163,6 +163,8 @@ elif [[ -f "$GBRAIN_CONFIG_FILE" ]]; then
           process.stdout.write("config-file:database_url");
         } else if (typeof cfg.database_path === "string" && cfg.database_path.length > 0) {
           process.stdout.write("config-file:database_path");
+        } else if (cfg.engine === "postgres" || cfg.engine === "pglite") {
+          process.stdout.write(`config-file:${cfg.engine}`);
         }
       } catch {}
     ' "$GBRAIN_CONFIG_FILE"
