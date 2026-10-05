@@ -28,7 +28,7 @@ It MUST NOT perform a new audit.
 
 The canonical engineering standard is:
 
-`../_standards/observability-logging-tracing-engineering-standard.md`
+`../../_standards/observability-logging-tracing-engineering-standard.md`
 
 Use the standard's **Contents** map first and load the sections relevant to each recorded finding before modifying its scope. Do not resolve an observability finding by introducing a known Rust, Axum, SQLx, testing, security, or Rig violation.
 
