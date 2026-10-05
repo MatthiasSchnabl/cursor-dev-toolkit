@@ -38,7 +38,7 @@ The canonical standard is:
 
 `../_standards/observability-logging-tracing-engineering-standard.md`
 
-Read that standard completely before evaluating the repository.
+Use the standard's **Contents** map first and load the sections relevant to the current audit phase. Before closeout, verify that every applicable standard domain was covered.
 
 Never reproduce secret values, prompts, tokens, or personal data. Use `[REDACTED]`.
 
