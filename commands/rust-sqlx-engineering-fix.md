@@ -5,14 +5,14 @@ description: Remediate only findings from the newest eligible open Rust SQLx/Pos
 
 # Rust SQLx + PostgreSQL Engineering Fix
 
-Read and follow the plugin skill `skills/engineering/rust-sqlx-engineering-fix/SKILL.md` completely, including `skills/engineering/_standards/rust-sqlx-postgresql-engineering-standard.md`.
+Follow the plugin skill `skills/engineering/rust-sqlx-engineering-fix/SKILL.md`.
+
+The skill uses progressive disclosure: read its compact `SKILL.md` first, then follow direct references by phase. Do **not** preload the complete procedure and canonical standard unless the task genuinely requires all sections.
 
 ## Operation
 
-This command is **fix** only.
+This command is **fix only**.
 
-- Locate the newest eligible open Rust SQLx/PostgreSQL audit and remediate only findings recorded there.
-- Never silently start an audit as part of a fix.
-- If no eligible open audit exists, STOP and report that `/rust-sqlx-engineering-audit` must run first.
-
-Write audit updates under `docs/engineering-audits/sqlx/` in the **current repository**.
+- Remediate only findings from the newest eligible open/partial audit.
+- Never invent findings or silently re-audit.
+- Close findings only after required verification passes.
