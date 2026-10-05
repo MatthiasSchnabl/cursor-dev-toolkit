@@ -5,14 +5,14 @@ description: Remediate only findings from the newest eligible open Rust engineer
 
 # Rust Engineering Fix
 
-Read and follow the plugin skill `skills/engineering/rust-engineering/SKILL.md` completely, including `references/rust-engineering-standard.md`.
+Follow the plugin skill `skills/engineering/rust-engineering/SKILL.md`.
+
+The skill uses progressive disclosure: read its compact `SKILL.md` first, then follow direct references by phase. Do **not** preload the complete procedure and canonical standard unless the task genuinely requires all sections.
 
 ## Operation
 
-This command is **fix** only.
+This command is **fix only**.
 
-- Locate the newest eligible open Rust audit and remediate only findings recorded there.
-- Never silently start an audit as part of a fix.
-- If no eligible open audit exists, STOP and report that `/rust-engineering-audit` must run first.
-
-Write audit updates under `docs/engineering-audits/rust/` in the **current repository**.
+- Remediate only findings from the newest eligible open/partial audit.
+- Never invent findings or silently re-audit.
+- Close findings only after required verification passes.
