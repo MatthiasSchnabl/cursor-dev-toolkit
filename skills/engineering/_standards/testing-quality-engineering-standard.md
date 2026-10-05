@@ -1,5 +1,26 @@
 # Testing & Quality Engineering Standard
 
+## Contents
+
+- §§1–10: Priority Order → Test Isolation
+- §§11–20: Parallel Execution → Regression Tests
+- §§21–30: Regression Test Naming → Assertions
+- §§31–40: Assert Relevant State → HTTP Router Tests
+- §§41–50: API Contract Tests → Concurrency Tests
+- §§51–60: Concurrency Tests Must Be Deterministic Where Possible → Review Snapshot Changes
+- §§61–70: Avoid Brittle Snapshots → Contract Tests for External Services
+- §§71–80: Filesystem Tests → cargo nextest
+- §§81–90: CI Test Categories → Coverage Thresholds
+- §§91–100: Coverage Tooling → Production-Like Data
+- §§101–110: Security Testing → Avoid Over-Abstraction for Testing
+- §§111–120: Test Helpers → Testing Refactors
+- §§121–130: Testing Schema Changes → Reproducibility
+- §§131–140: Quality Gate Baseline → Prohibited Testing Shortcuts
+- §§141–142: Review Checklist → Definition of Done
+
+> Navigation: use this map to load only the sections required for the current phase. Do not preload the whole file unless the task genuinely requires it.
+
+
 These instructions are mandatory for testing and quality assurance in this repository.
 
 This standard supplements:
