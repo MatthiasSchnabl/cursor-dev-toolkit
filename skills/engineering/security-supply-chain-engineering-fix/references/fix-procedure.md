@@ -33,7 +33,7 @@ The canonical engineering standard is:
 
 `../_standards/security-supply-chain-engineering-standard.md`
 
-Read that standard completely before modifying source. Do not resolve a security finding by introducing a known Rust-, Axum-, SQLx- or testing-engineering violation.
+Use the standard's **Contents** map first and load the sections relevant to each recorded finding before modifying its scope. Do not resolve a security finding by introducing a known Rust-, Axum-, SQLx- or testing-engineering violation.
 
 Never reproduce secret values in chat, logs or Resolution records. Use `[REDACTED]`.
 
