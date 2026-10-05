@@ -12,19 +12,19 @@ One-time install → available in all local Cursor projects via User-scope plugi
 - Pinned runtime bootstrap (gstack, Graphify, GBrain, Superpowers checkout)
 - `/tooling-doctor`, `/tooling-setup`, `/tooling-update` commands
 - `/engineering-context-doctor` — verifies installed plugin freshness and engineering context architecture
-- `/rust-engineering-audit` — evidence-based Rust audit (`skills/engineering/rust-engineering/`; standard body must stay in sync with `rules/rust-engineering-standard.mdc`)
+- `/rust-engineering-audit` — evidence-based Rust audit; full standard loads progressively from the skill reference
 - `/rust-engineering-fix` — controlled remediation against an open audit in `docs/engineering-audits/rust/`
-- `/rust-axum-engineering-audit` — evidence-based Axum/HTTP audit (`skills/engineering/rust-axum-engineering-audit/`; standard body in `skills/engineering/_standards/` must stay in sync with `rules/rust-axum-engineering-standard.mdc`)
+- `/rust-axum-engineering-audit` — evidence-based Axum/HTTP audit with progressive standard loading
 - `/rust-axum-engineering-fix` — controlled remediation against an open audit in `docs/engineering-audits/axum/`
-- `/testing-quality-engineering-audit` — evidence-based testing and quality audit (`skills/engineering/testing-quality-engineering-audit/`; standard body in `skills/engineering/_standards/` must stay in sync with `rules/testing-quality-engineering-standard.mdc`)
+- `/testing-quality-engineering-audit` — evidence-based testing/quality audit with progressive standard loading
 - `/testing-quality-engineering-fix` — controlled remediation against an open audit in `docs/engineering-audits/testing/`
-- `/security-supply-chain-engineering-audit` — evidence-based security and supply-chain audit (`skills/engineering/security-supply-chain-engineering-audit/`; standard body in `skills/engineering/_standards/` must stay in sync with `rules/security-supply-chain-engineering-standard.mdc`)
+- `/security-supply-chain-engineering-audit` — evidence-based security/supply-chain audit with progressive standard loading
 - `/security-supply-chain-engineering-fix` — controlled remediation against an open audit in `docs/engineering-audits/security/`
-- `/rust-rig-agentic-engineering-audit` — evidence-based Rig/agentic audit (`skills/engineering/rust-rig-agentic-engineering-audit/`; standard body in `skills/engineering/_standards/` must stay in sync with `rules/rust-rig-agentic-engineering-standard.mdc`)
+- `/rust-rig-agentic-engineering-audit` — evidence-based Rig/agentic audit with progressive standard loading
 - `/rust-rig-agentic-engineering-fix` — controlled remediation against an open audit in `docs/engineering-audits/rig/`
-- `/rust-sqlx-engineering-audit` — evidence-based SQLx/PostgreSQL audit (`skills/engineering/rust-sqlx-engineering-audit/`; standard body in `skills/engineering/_standards/rust-sqlx-postgresql-engineering-standard.md` must stay in sync with `rules/rust-sqlx-engineering-standard.mdc`)
+- `/rust-sqlx-engineering-audit` — evidence-based SQLx/PostgreSQL audit with progressive standard loading
 - `/rust-sqlx-engineering-fix` — controlled remediation against an open audit in `docs/engineering-audits/sqlx/`
-- `/observability-logging-tracing-engineering-audit` — evidence-based observability, logging, and tracing audit (`skills/engineering/observability-logging-tracing-engineering-audit/`; standard body in `skills/engineering/_standards/observability-logging-tracing-engineering-standard.md` must stay in sync with `rules/observability-logging-tracing-engineering-standard.mdc`)
+- `/observability-logging-tracing-engineering-audit` — evidence-based observability/logging/tracing audit with progressive standard loading
 - `/observability-logging-tracing-engineering-fix` — controlled remediation against an open audit in `docs/engineering-audits/observability/`
 - Cloud install/start scripts for minimal per-repo adapters
 
