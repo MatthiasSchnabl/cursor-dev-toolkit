@@ -9,7 +9,7 @@ One-time install → available in all local Cursor projects via User-scope plugi
 ## What it provides
 
 - Global tool routing rules and skills
-- Pinned runtime bootstrap (gstack, Graphify, GBrain, Superpowers checkout)
+- Pinned runtime bootstrap (gstack, Graphify with SQL schema support, GBrain, Superpowers checkout)
 - `/tooling-doctor`, `/tooling-setup`, `/tooling-update` commands
 - `/engineering-context-doctor` — verifies installed plugin freshness and engineering context architecture
 - `/rust-engineering-audit` — evidence-based Rust audit; full standard loads progressively from the skill reference
@@ -139,6 +139,8 @@ or in Cursor:
 ```
 
 If the source checkout is outside `~/.cursor/plugins/local/cursor-dev-toolkit`, rerun the installer first; the doctor fails when the installed copy differs from the source checkout.
+
+GBrain verification accepts both `GBRAIN_DATABASE_URL` and file-plane configuration in `~/.gbrain/config.json`; doctor JSON is parsed with Bun, so `jq` is not required.
 
 ## Verify
 
