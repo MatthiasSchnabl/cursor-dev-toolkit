@@ -44,6 +44,31 @@ for rule in "${required_rules[@]}"; do
 done
 pass "engineering rules are compact and present"
 
+required_skills=(
+  rust-engineering
+  rust-axum-engineering-audit
+  rust-axum-engineering-fix
+  rust-sqlx-engineering-audit
+  rust-sqlx-engineering-fix
+  testing-quality-engineering-audit
+  testing-quality-engineering-fix
+  security-supply-chain-engineering-audit
+  security-supply-chain-engineering-fix
+  rust-rig-agentic-engineering-audit
+  rust-rig-agentic-engineering-fix
+  observability-logging-tracing-engineering-audit
+  observability-logging-tracing-engineering-fix
+  engineering-context-doctor
+)
+
+for skill_name in "${required_skills[@]}"; do
+  skill="$PLUGIN_DIR/skills/engineering/$skill_name/SKILL.md"
+  [[ -f "$skill" ]] || fail "missing engineering skill $skill_name"
+  grep -Fq "\"./skills/engineering/$skill_name\"" "$PLUGIN_DIR/.cursor-plugin/plugin.json" ||
+    fail "engineering skill not registered in plugin manifest: $skill_name"
+done
+pass "required engineering skills are registered in plugin manifest"
+
 skill_count=0
 while IFS= read -r skill; do
   skill_count=$((skill_count + 1))
@@ -51,9 +76,11 @@ while IFS= read -r skill; do
   [[ "$lines" -le 500 ]] || fail "SKILL.md exceeds 500 lines: $skill ($lines)"
   grep -q '^name:' "$skill" || fail "skill missing name frontmatter: $skill"
   grep -q '^description:' "$skill" || fail "skill missing description frontmatter: $skill"
+  grep -q '^disable-model-invocation:[[:space:]]*true' "$skill" ||
+    fail "engineering skill must be explicit/manual invocation: $skill"
 done < <(find "$PLUGIN_DIR/skills/engineering" -name SKILL.md -type f | sort)
 [[ "$skill_count" -gt 0 ]] || fail "no engineering skills discovered"
-pass "engineering SKILL.md files <= 500 lines ($skill_count checked)"
+pass "engineering SKILL.md files are compact and explicit-only ($skill_count checked)"
 
 while IFS= read -r ref; do
   lines="$(wc -l <"$ref" | tr -d ' ')"
@@ -62,6 +89,11 @@ while IFS= read -r ref; do
   fi
 done < <(find "$PLUGIN_DIR/skills/engineering" -type f -name '*.md' ! -name SKILL.md | sort)
 pass "long engineering references expose Contents within first 100 lines"
+
+grep -q '"sessionStart"' "$PLUGIN_DIR/hooks/hooks.json" || fail "plugin sessionStart hook is not registered"
+grep -Fq './hooks/run-hook.cmd session-start' "$PLUGIN_DIR/hooks/hooks.json" ||
+  fail "plugin sessionStart hook command is not the expected cross-platform wrapper"
+pass "plugin SessionStart hook registration"
 
 session_json="$(bash "$PLUGIN_DIR/hooks/session-start" </dev/null)"
 printf '%s' "$session_json" | grep -q '"additional_context"' || fail "sessionStart does not emit additional_context"
