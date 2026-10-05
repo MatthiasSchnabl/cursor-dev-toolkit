@@ -31,7 +31,7 @@ It MUST NOT perform a new audit.
 
 The canonical engineering standard is:
 
-`../_standards/testing-quality-engineering-standard.md`
+`../../_standards/testing-quality-engineering-standard.md`
 
 Use the standard's **Contents** map first and load the sections relevant to each recorded finding before modifying its scope. Do not resolve a testing finding by introducing a known Rust-, Axum-, SQLx- or security-engineering violation.
 
