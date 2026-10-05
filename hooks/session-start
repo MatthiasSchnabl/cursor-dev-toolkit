@@ -16,7 +16,7 @@ revision="unknown"
 if git -C "$TOOLKIT_ROOT" rev-parse HEAD >/dev/null 2>&1; then
   revision="$(git -C "$TOOLKIT_ROOT" rev-parse --short=12 HEAD)"
 elif [[ -f "$TOOLKIT_ROOT/.cursor-toolkit-install" ]]; then
-  revision="$(sed -n '2p' "$TOOLKIT_ROOT/.cursor-toolkit-install" | cut -c1-12)"
+  revision="$(sed -n '2p' "$TOOLKIT_ROOT/.cursor-toolkit-install" | tr -d '\r' | cut -c1-12)"
 fi
 
 missing=()
@@ -26,8 +26,8 @@ done
 
 stale=""
 if [[ -f "$TOOLKIT_ROOT/.cursor-toolkit-install" ]]; then
-  source_root="$(sed -n '1p' "$TOOLKIT_ROOT/.cursor-toolkit-install")"
-  installed_commit="$(sed -n '2p' "$TOOLKIT_ROOT/.cursor-toolkit-install")"
+  source_root="$(sed -n '1p' "$TOOLKIT_ROOT/.cursor-toolkit-install" | tr -d '\r')"
+  installed_commit="$(sed -n '2p' "$TOOLKIT_ROOT/.cursor-toolkit-install" | tr -d '\r')"
   if command -v cygpath >/dev/null 2>&1 && [[ "$source_root" =~ ^[A-Za-z]:\\ ]]; then
     source_root="$(cygpath -u "$source_root")"
   fi
