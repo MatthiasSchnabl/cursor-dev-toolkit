@@ -21,9 +21,9 @@ Apply when creating or changing tests, test infrastructure, quality gates, regre
 
 ## Detailed standard
 
-Read relevant sections of:
+Read relevant sections from the installed plugin root:
 
-`skills/engineering/_standards/testing-quality-engineering-standard.md`
+`$CURSOR_DEV_TOOLKIT_ROOT/skills/engineering/_standards/testing-quality-engineering-standard.md`
 
 Use its **Contents** map and load only sections relevant to the change.
 
