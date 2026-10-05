@@ -21,9 +21,9 @@ Apply when the task touches Axum, Tower, HTTP/API handlers, middleware, extracto
 
 ## Detailed standard
 
-Read relevant sections of:
+Read relevant sections from the installed plugin root:
 
-`skills/engineering/_standards/rust-axum-engineering-standard.md`
+`$CURSOR_DEV_TOOLKIT_ROOT/skills/engineering/_standards/rust-axum-engineering-standard.md`
 
 Use its **Contents** map; do not preload the full standard unnecessarily.
 
