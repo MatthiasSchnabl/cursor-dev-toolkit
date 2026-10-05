@@ -1,5 +1,7 @@
 # cursor-dev-toolkit
 
+> Engineering context architecture: compact Cursor rules + SessionStart anchor + progressively loaded skills/references. Run `/engineering-context-doctor` after installs/updates or whenever rules appear not to apply.
+
 Reusable Cursor developer tooling: **GBrain**, **Graphify**, **Superpowers**, **gstack**.
 
 One-time install → available in all local Cursor projects via User-scope plugin.
@@ -9,6 +11,7 @@ One-time install → available in all local Cursor projects via User-scope plugi
 - Global tool routing rules and skills
 - Pinned runtime bootstrap (gstack, Graphify, GBrain, Superpowers checkout)
 - `/tooling-doctor`, `/tooling-setup`, `/tooling-update` commands
+- `/engineering-context-doctor` — verifies installed plugin freshness and engineering context architecture
 - `/rust-engineering-audit` — evidence-based Rust audit (`skills/engineering/rust-engineering/`; standard body must stay in sync with `rules/rust-engineering-standard.mdc`)
 - `/rust-engineering-fix` — controlled remediation against an open audit in `docs/engineering-audits/rust/`
 - `/rust-axum-engineering-audit` — evidence-based Axum/HTTP audit (`skills/engineering/rust-axum-engineering-audit/`; standard body in `skills/engineering/_standards/` must stay in sync with `rules/rust-axum-engineering-standard.mdc`)
@@ -45,7 +48,7 @@ cd cursor-dev-toolkit
 
 Then: **Developer: Reload Window** → verify in **Customize** (User scope).
 
-`install.ps1` / `install.sh` remain the path when the checkout lives somewhere else. On Windows, `install.ps1` copies the tree into `plugins\local` (Cursor does not load a plugin that only lives outside that folder). Re-run it after edits to refresh that copy.
+`install.ps1` / `install.sh` remain the path when the checkout lives somewhere else. The installers copy the plugin tree into `plugins/local` when the source checkout lives elsewhere. This is intentional: Cursor skips symlinks whose target resolves outside the local plugin directory. Re-run the installer after edits to refresh the installed copy.
 
 ## Engineering plugin
 
@@ -112,6 +115,30 @@ edit the cursor-dev-toolkit checkout
 ```
 
 Do not keep a second hand-edited plugin copy.
+
+## Engineering context loading
+
+The engineering setup deliberately uses three layers:
+
+1. **Compact Cursor rules** keep critical invariants reliably attached without loading full standards.
+2. **SessionStart hook** injects toolkit version/revision plus the routing duty into every new Agent session.
+3. **Skills + references** use progressive disclosure. `SKILL.md` stays below 500 lines; long references expose a `## Contents` map near the top.
+
+The full standards are no longer duplicated into auto-attached rule bodies. They remain canonical references under `skills/engineering/`.
+
+After cloning, updating, or changing the toolkit:
+
+```bash
+./scripts/verify.sh
+```
+
+or in Cursor:
+
+```text
+/engineering-context-doctor
+```
+
+If the source checkout is outside `~/.cursor/plugins/local/cursor-dev-toolkit`, rerun the installer first; the doctor fails when the installed copy differs from the source checkout.
 
 ## Verify
 
