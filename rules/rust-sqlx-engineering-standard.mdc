@@ -22,9 +22,9 @@ Apply when the task touches SQLx, PostgreSQL, repositories, SQL, migrations, per
 
 ## Detailed standard
 
-Read relevant sections of:
+Read relevant sections from the installed plugin root:
 
-`skills/engineering/_standards/rust-sqlx-postgresql-engineering-standard.md`
+`$CURSOR_DEV_TOOLKIT_ROOT/skills/engineering/_standards/rust-sqlx-postgresql-engineering-standard.md`
 
 Use its **Contents** map; do not preload the whole document.
 
