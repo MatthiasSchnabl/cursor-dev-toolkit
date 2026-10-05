@@ -22,9 +22,9 @@ Apply to security-sensitive code and dependency, secret, authentication, authori
 
 ## Detailed standard
 
-Read relevant sections of:
+Read relevant sections from the installed plugin root:
 
-`skills/engineering/_standards/security-supply-chain-engineering-standard.md`
+`$CURSOR_DEV_TOOLKIT_ROOT/skills/engineering/_standards/security-supply-chain-engineering-standard.md`
 
 Use its **Contents** map; avoid loading unrelated security sections.
 
