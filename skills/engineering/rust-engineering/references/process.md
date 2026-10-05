@@ -16,7 +16,7 @@ This skill performs evidence-based Rust engineering audits and controlled remedi
 
 The canonical standard is:
 
-`references/rust-engineering-standard.md`
+`rust-engineering-standard.md`
 
 The standard defines **what good Rust engineering means**.
 
