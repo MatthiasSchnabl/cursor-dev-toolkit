@@ -22,9 +22,9 @@ Apply when the task touches Rig, LLM/model calls, agents, tools, hooks, agent me
 
 ## Detailed standard
 
-Read relevant sections of:
+Read relevant sections from the installed plugin root:
 
-`skills/engineering/_standards/rust-rig-agentic-engineering-standard.md`
+`$CURSOR_DEV_TOOLKIT_ROOT/skills/engineering/_standards/rust-rig-agentic-engineering-standard.md`
 
 Use its **Contents** map; load only agentic topics needed.
 
