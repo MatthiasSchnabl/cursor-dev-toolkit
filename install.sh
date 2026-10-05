@@ -30,11 +30,14 @@ copy_plugin_tree() {
   log "copied $source -> $destination"
 }
 
-if [[ -n "$dest_resolved" && "$dest_resolved" == "$root_resolved" ]]; then
+if [[ -L "$PLUGIN_DEST" ]]; then
+  log "replacing symlink with a real local plugin copy"
+  copy_plugin_tree "$ROOT" "$PLUGIN_DEST"
+elif [[ -n "$dest_resolved" && "$dest_resolved" == "$root_resolved" ]]; then
   log "checkout already lives at $PLUGIN_DEST"
-elif [[ -e "$PLUGIN_DEST" || -L "$PLUGIN_DEST" ]]; then
-  if [[ -L "$PLUGIN_DEST" || -f "$PLUGIN_DEST/.cursor-plugin/plugin.json" ]]; then
-    log "refreshing local plugin copy (Cursor skips symlinks that resolve outside plugins/local)"
+elif [[ -e "$PLUGIN_DEST" ]]; then
+  if [[ -f "$PLUGIN_DEST/.cursor-plugin/plugin.json" ]]; then
+    log "refreshing local plugin copy"
     copy_plugin_tree "$ROOT" "$PLUGIN_DEST"
   else
     die "refusing to overwrite unrelated $PLUGIN_DEST"
