@@ -153,6 +153,16 @@ function diffCheck() {
   if(!material.length) {console.log("[PASS] no watched application changes staged");return;}
   const manifest=cfg.knowledge_dir+"/manifest.json";
   if(!changes.includes(manifest)) fatal("KNOWLEDGE_DRIFT: watched source changes staged without an updated "+manifest+": "+material.join(", "));
+  const unstaged=git(["diff","--name-only"]).split("\n").filter(Boolean);
+  const sensitive=new Set([...material,manifest,cfg.openapi_path,configFile]);
+  for(const p of changes) if(p.startsWith(cfg.knowledge_dir+"/")) sensitive.add(p);
+  const mixed=unstaged.filter(p=>sensitive.has(p));
+  if(mixed.length) fatal("INDEX_WORKTREE_DRIFT: stage all changes to watched knowledge files before commit: "+mixed.join(", "));
+  const stagedManifest=loadJson(manifest);
+  for(const p of [configFile,cfg.openapi_path,manifest,...stagedManifest.documents.map(d=>d.path)]) {
+    try { git(["ls-files","--error-unmatch","--",p]); }
+    catch { fatal("KNOWLEDGE_UNTRACKED: required knowledge source not staged/tracked: "+p); }
+  }
   const hasUpdatedDocs=changes.some(p=>p.startsWith(cfg.knowledge_dir+"/") && p!==manifest);
   if(!hasUpdatedDocs) {
     const m=loadJson(manifest);
