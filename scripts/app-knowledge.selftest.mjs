@@ -24,6 +24,10 @@ try {
   write("README.md","Reference README\n");
   const oas={openapi:"3.1.0",info:{title:"Demo",version:"1.2.3"},paths:{"/v1/items":{get:{operationId:"listItems",responses:{"200":{description:"ok"}}}}}};
   const api=JSON.stringify(oas,null,2)+"\n";
+  const invalid=structuredClone(oas);
+  delete invalid.paths["/v1/items"].get.operationId;
+  write("api/openapi.json",JSON.stringify(invalid));
+  assert.match(cli("preflight").stderr,/operationId/);
   write("api/openapi.json",api);
   write("app-knowledge.config.json",JSON.stringify({schema_version:1,application_id:"demo",openapi_path:"api/openapi.json",knowledge_dir:"docs/app-knowledge",release_space_prefix:"demo.release.",watch_paths:["api/","src/"]},null,2));
   const kinds=["product","domain","workflows","ui","permissions","api","agent-capabilities"];
@@ -39,6 +43,9 @@ try {
   assert.equal(cli("validate").status,0);
   git("add","-A");git("commit","-q","-m","init");
   assert.equal(cli("publish-plan").status,0);
+  write("README.md","dirty worktree\n");
+  assert.match(cli("publish-plan").stderr,/working tree is dirty/);
+  write("README.md","Reference README\n");
   assert.notEqual(cli("stage").status,0,"staging must require explicit fingerprint approval");
   write("docs/app-knowledge/api/guide.md","# changed content\n");
   assert.match(cli("validate").stderr,/DOCUMENT_DRIFT/);
