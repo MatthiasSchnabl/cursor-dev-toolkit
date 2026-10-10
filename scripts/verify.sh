@@ -38,6 +38,9 @@ command -v bun >/dev/null 2>&1 || fail "bun not on PATH"
 [[ "$(bun --version)" == "$BUN_VERSION" ]] || fail "bun version mismatch"
 pass "bun $BUN_VERSION"
 
+bun "$SCRIPT_DIR/app-knowledge.selftest.mjs"
+pass "application knowledge offline regression tests"
+
 command -v graphify >/dev/null 2>&1 || fail "graphify not on PATH"
 [[ "$(graphify --version 2>/dev/null | awk '{print $NF}')" == "$GRAPHIFY_VERSION" ]] || fail "graphify version mismatch"
 pass "graphify $GRAPHIFY_VERSION"
