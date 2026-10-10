@@ -170,7 +170,10 @@ function installHook() {
   const cfg=readConfig(true);
   preflight();
   const hooksPath=git(["rev-parse","--git-path","hooks"]);
-  if(git(["config","--get","core.hooksPath"]) !== "") fatal("existing core.hooksPath is configured; integrate app-knowledge diff-check there manually");
+  let customHooks="";
+  try { customHooks=git(["config","--get","core.hooksPath"]); }
+  catch(e) { if(e.status!==1) fatal("unable to inspect git core.hooksPath"); }
+  if(customHooks) fatal("existing core.hooksPath is configured; integrate app-knowledge diff-check there manually");
   const hook=path.isAbsolute(hooksPath)?path.join(hooksPath,"pre-commit"):path.join(root,hooksPath,"pre-commit");
   if(fs.existsSync(hook)) fatal("existing pre-commit hook found; refusing to overwrite or append. Integrate diff-check manually: "+hook);
   fs.mkdirSync(path.dirname(hook),{recursive:true});
@@ -184,6 +187,10 @@ function publishPlan() {
   const result=inventory(), cfg=result.base.cfg;
   if(!result.releaseReady) fatal("PUBLISH_BLOCKED: unresolved gaps or unverified documents");
   const prefix=requireText(cfg.release_space_prefix,"release_space_prefix");
+  const evalFile=cfg.knowledge_dir+"/evals/golden.json";
+  const evalSet=loadJson(evalFile);
+  if(!Array.isArray(evalSet.cases) || evalSet.cases.length<1 ||
+     evalSet.cases.some(x=>typeof x.question!=="string" || !x.question.trim())) fatal("golden eval set must contain nonempty cases with questions");
   if(!prefix.startsWith(cfg.application_id+".release.") || !/^[a-z0-9.-]+$/.test(prefix)) fatal("release_space_prefix must start with application_id+'.release.'");
   const space=prefix+result.fingerprint;
   const plan={
@@ -199,6 +206,8 @@ async function stage() {
   requireCleanRepo();
   const result=inventory(),cfg=result.base.cfg;
   if(!result.releaseReady) fatal("PUBLISH_BLOCKED: unverified or missing knowledge");
+  const evalSet=loadJson(cfg.knowledge_dir+"/evals/golden.json");
+  if(!Array.isArray(evalSet.cases)||!evalSet.cases.length) fatal("golden evaluation set missing");
   const prefix=requireText(cfg.release_space_prefix,"release_space_prefix");
   if(!prefix.startsWith(cfg.application_id+".release.") || !/^[a-z0-9.-]+$/.test(prefix)) fatal("unsafe release_space_prefix");
   const space=prefix+result.fingerprint;
@@ -237,7 +246,8 @@ async function stage() {
     if(!done) fatal("RAGGW ingest polling expired for "+doc.id);
     console.log("[STAGED] "+doc.id);
   }
-  console.log(JSON.stringify({status:"STAGED_NOT_ACTIVATED",release_id:result.fingerprint,space,knowledge_revision:maxRevision,documents:result.manifest.documents.length,note:"Requires app-specific retrieval evals and independent activation gate."},null,2));
+  if(maxRevision<=0) fatal("STAGING_UNVERIFIED: jobs succeeded but no knowledge revision returned");
+  console.log(JSON.stringify({status:"STAGED_NOT_ACTIVATED",release_id:result.fingerprint,space,source_git_sha:git(["rev-parse","HEAD"]),knowledge_revision:maxRevision,documents:result.manifest.documents.length,note:"Requires app-specific retrieval evals and independent activation gate."},null,2));
 }
 async function main(){
   if(!fs.existsSync(root)||!fs.statSync(root).isDirectory()) fatal("invalid root "+root);
