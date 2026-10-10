@@ -48,7 +48,8 @@ try {
   manifest.documents.find(x=>x.kind==="api").sha256=sha("# api\n\nVerified sample.\n");
   write("docs/app-knowledge/manifest.json",JSON.stringify(manifest,null,2)+"\n");
   assert.equal(cli("validate").status,0);
-  git("add","-A");git("commit","-q","-m","restore fixture");
+  assert.equal(cli("install-hook").status,0,"opt-in local hook installation should work");
+  assert.notEqual(cli("install-hook").status,0,"existing hook must not be overwritten");
   write("src/main.rs","fn changed() {}\n");git("add","src/main.rs");
   assert.match(cli("diff-check").stderr,/KNOWLEDGE_DRIFT/);
   manifest.maintenance={no_behavior_change:{reason:"Internal-only test fixture change",reviewed_files:["src/main.rs"]}};
