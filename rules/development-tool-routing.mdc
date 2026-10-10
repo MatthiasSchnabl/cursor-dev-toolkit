@@ -40,6 +40,10 @@ Canonical detailed standards are read from `$CURSOR_DEV_TOOLKIT_ROOT` (set by th
 
 For any long reference: read **Contents** first, then load only sections needed for the current phase.
 
+## App knowledge (opt-in)
+
+When an application repository has `app-knowledge.config.json`, material app/API/domain/UI/permission changes require matching versioned knowledge updates or a reviewed no-behavior-change decision. Use the global `/app-knowledge-inventory` skill and local `app-knowledge.mjs diff-check`; publishing is exclusively manual via `/app-knowledge-publish`. Never clone this toolkit per app.
+
 ## Audit / fix invariant
 
 `audit → persistent ledger → fix against open/partial audit → verification → resolved`
