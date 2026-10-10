@@ -1,0 +1,37 @@
+{
+  "cases": [
+    {
+      "id": "G-001",
+      "question": "How do I create a test case and which fields are required?",
+      "type": "workflow",
+      "expected_operation_ids": [
+        "createTestCase"
+      ],
+      "expected_source_ids": [
+        "api-testcase"
+      ]
+    },
+    {
+      "id": "G-002",
+      "question": "Who can execute this test?",
+      "type": "permissions",
+      "expected_source_ids": [
+        "permissions-model"
+      ]
+    },
+    {
+      "id": "G-003",
+      "question": "What does a failed test step mean for the plan?",
+      "type": "domain",
+      "expected_source_ids": [
+        "execution-workflow"
+      ]
+    },
+    {
+      "id": "G-004",
+      "question": "Can I bulk-delete all results?",
+      "type": "restricted-action",
+      "expected_behavior": "deny_unless_explicit_policy"
+    }
+  ]
+}
