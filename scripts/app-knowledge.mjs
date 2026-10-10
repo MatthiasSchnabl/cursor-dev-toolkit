@@ -139,7 +139,48 @@ function inventory() {
   if(unreviewed.length) console.log("[BLOCKED] "+unreviewed.length+" unverified knowledge documents");
   return {base,manifest:m,fingerprint,releaseReady:!blocked.length&&!unreviewed.length};
 }
+function git(args) { return child.execFileSync("git",["-C",root,...args],{encoding:"utf8"}).trim(); }
+function requireCleanRepo() {
+  if(git(["status","--porcelain"]).length) fatal("PUBLISH_BLOCKED: working tree is dirty; commit and verify the exact app version first");
+}
+function diffCheck() {
+  const cfg=readConfig(false);
+  if(!cfg) { console.log("[SKIP] app-knowledge opt-in not present"); return; }
+  const changes=git(["diff","--cached","--name-only","--diff-filter=ACMR"]).split("\n").filter(Boolean);
+  const prefixes=Array.isArray(cfg.watch_paths) ? cfg.watch_paths : [];
+  if(!prefixes.length) fatal("watch_paths must list the app's behavior-affecting path prefixes");
+  const material=changes.filter(p=>p===cfg.openapi_path || prefixes.some(prefix=>p.startsWith(prefix)));
+  if(!material.length) {console.log("[PASS] no watched application changes staged");return;}
+  const manifest=cfg.knowledge_dir+"/manifest.json";
+  if(!changes.includes(manifest)) fatal("KNOWLEDGE_DRIFT: watched source changes staged without an updated "+manifest+": "+material.join(", "));
+  const hasUpdatedDocs=changes.some(p=>p.startsWith(cfg.knowledge_dir+"/") && p!==manifest);
+  if(!hasUpdatedDocs) {
+    const m=loadJson(manifest);
+    const decision=m.maintenance?.no_behavior_change;
+    if(!decision || typeof decision.reason!=="string" || !decision.reason.trim() || !Array.isArray(decision.reviewed_files) ||
+       !material.every(p=>decision.reviewed_files.includes(p))) {
+      fatal("KNOWLEDGE_DRIFT: no knowledge docs changed; record maintenance.no_behavior_change {reason,reviewed_files} in manifest");
+    }
+  }
+  const result=inventory();
+  if(!result.releaseReady) fatal("KNOWLEDGE_DRIFT: inventory is incomplete");
+  console.log("[PASS] staged app changes covered by knowledge inventory");
+}
+function installHook() {
+  const cfg=readConfig(true);
+  preflight();
+  const hooksPath=git(["rev-parse","--git-path","hooks"]);
+  if(git(["config","--get","core.hooksPath"]) !== "") fatal("existing core.hooksPath is configured; integrate app-knowledge diff-check there manually");
+  const hook=path.isAbsolute(hooksPath)?path.join(hooksPath,"pre-commit"):path.join(root,hooksPath,"pre-commit");
+  if(fs.existsSync(hook)) fatal("existing pre-commit hook found; refusing to overwrite or append. Integrate diff-check manually: "+hook);
+  fs.mkdirSync(path.dirname(hook),{recursive:true});
+  const script='#!/usr/bin/env bash\nset -euo pipefail\nexport PATH="$HOME/.bun/bin:$HOME/.local/bin:$PATH"\nexec bun "$HOME/.cursor/plugins/local/cursor-dev-toolkit/scripts/app-knowledge.mjs" diff-check --root "$(git rev-parse --show-toplevel)"\n';
+  fs.writeFileSync(hook,script,{mode:0o755,flag:"wx"});
+  fs.chmodSync(hook,0o755);
+  console.log("[PASS] local knowledge pre-commit hook installed: "+hook);
+}
 function publishPlan() {
+  requireCleanRepo();
   const result=inventory(), cfg=result.base.cfg;
   if(!result.releaseReady) fatal("PUBLISH_BLOCKED: unresolved gaps or unverified documents");
   const prefix=requireText(cfg.release_space_prefix,"release_space_prefix");
@@ -155,6 +196,7 @@ function publishPlan() {
   console.log(JSON.stringify(plan,null,2));
 }
 async function stage() {
+  requireCleanRepo();
   const result=inventory(),cfg=result.base.cfg;
   if(!result.releaseReady) fatal("PUBLISH_BLOCKED: unverified or missing knowledge");
   const prefix=requireText(cfg.release_space_prefix,"release_space_prefix");
@@ -201,6 +243,8 @@ async function main(){
   if(!fs.existsSync(root)||!fs.statSync(root).isDirectory()) fatal("invalid root "+root);
   if(command==="preflight") preflight();
   else if(command==="validate") {const r=inventory(); if(!r.releaseReady) fatal("NOT_RELEASE_READY");}
+  else if(command==="diff-check") diffCheck();
+  else if(command==="install-hook") installHook();
   else if(command==="publish-plan") publishPlan();
   else if(command==="stage") await stage();
   else {
