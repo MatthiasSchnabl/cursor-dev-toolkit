@@ -31,7 +31,7 @@ The app owns these files; the plugin is **not** cloned into the app:
 - app-knowledge.config.json: schema_version=1, application_id, openapi_path, knowledge_dir="docs/app-knowledge", release_space_prefix="<application_id>.release.", watch_paths (prefixes)
 - docs/app-knowledge/manifest.json: schema_version=1, application_id, app_version (equals OpenAPI info.version), openapi_sha256, documents[], gaps[]
 - docs/app-knowledge/{product,domain,workflows,ui,permissions,api,agent-capabilities}/*.md: curated versioned knowledge
-- docs/app-knowledge/evals/: app-specific golden questions and execution evidence (not automatically treated as passing)
+- docs/app-knowledge/evals/golden.json: app-specific golden questions in an object with a nonempty cases[] array (each with a question string). See docs/examples/app-knowledge.golden.example.json. A declared test case is **not** a passing eval result.
 
 Each manifest.documents entry: id (stable within app), kind (one of seven), path (relative Markdown), sha256 (raw bytes), verification ("verified" or "needs_review"), sources[] (existing relative repo paths; human-readable source locations also belong inside Markdown), operation_ids[] (a subset of actual OpenAPI operations). Each API operationId must be covered by at least one document. Empty operation_ids is valid for non-API documents. All seven categories must exist.
 
@@ -75,7 +75,7 @@ Manual operator explicitly runs /app-knowledge-publish and confirms the plan/fin
 
 Cursor's global maintenance rule applies only when the app opts in via app-knowledge.config.json. After a material change, update the affected knowledge docs + manifest SHA hashes. A pure internal refactor can record a reviewed no-behavior-change decision in the manifest; never claim a non-change without checking API/UI/domain/authorization impact.
 
-Run the deterministic local validator before committing. Optional local hook runs staged diff checking; existing hooks may not be overwritten. CI is an optional backstop, not an expensive LLM regeneration loop. No GitHub Action is required to publish.
+Run the deterministic local validator before committing. Opt in using `bun "$CURSOR_DEV_TOOLKIT_ROOT/scripts/app-knowledge.mjs" install-hook --root "$APP_ROOT"`. The local Git pre-commit hook runs `diff-check` on staged watched paths, requires a staged manifest update and updated docs or `manifest.maintenance.no_behavior_change` with an explicit reason and list of reviewed paths. Existing hooks or core.hooksPath are never overwritten. CI is an optional backstop, not an expensive LLM regeneration loop. No GitHub Action is required to publish.
 
 ## 8. Security and assistant integration
 
