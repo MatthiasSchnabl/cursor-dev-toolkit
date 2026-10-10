@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "application_id": "example-app",
+  "app_version": "1.0.0",
+  "openapi_sha256": "REPLACE_WITH_SHA256_OF_OPENAPI",
+  "documents": [
+    {
+      "id": "product-overview",
+      "kind": "product",
+      "path": "docs/app-knowledge/product/overview.md",
+      "sha256": "REPLACE_WITH_SHA256",
+      "verification": "needs_review",
+      "sources": [
+        "README.md"
+      ],
+      "operation_ids": []
+    }
+  ],
+  "gaps": [
+    {
+      "id": "GAP-001",
+      "description": "Fill remaining knowledge categories and operation coverage from verified repo evidence",
+      "blocks_publish": true
+    }
+  ]
+}

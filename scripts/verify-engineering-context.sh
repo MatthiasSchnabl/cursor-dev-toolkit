@@ -30,6 +30,7 @@ required_rules=(
   security-supply-chain-engineering-standard.mdc
   rust-rig-agentic-engineering-standard.mdc
   observability-logging-tracing-engineering-standard.mdc
+  app-knowledge-maintenance.mdc
 )
 
 for rule in "${required_rules[@]}"; do
@@ -59,6 +60,8 @@ required_skills=(
   observability-logging-tracing-engineering-audit
   observability-logging-tracing-engineering-fix
   engineering-context-doctor
+  app-knowledge-inventory
+  app-knowledge-publish
 )
 
 for skill_name in "${required_skills[@]}"; do

@@ -2,7 +2,7 @@
   "name": "cursor-dev-toolkit",
   "displayName": "Cursor Dev Toolkit",
   "description": "Global developer tooling and context-efficient Rust engineering standards, audit/fix skills, hooks, bootstrap, and local verification",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "author": {
     "name": "Matthias Schnabl"
   },
@@ -33,7 +33,9 @@
     "./skills/engineering/rust-sqlx-engineering-fix",
     "./skills/engineering/observability-logging-tracing-engineering-audit",
     "./skills/engineering/observability-logging-tracing-engineering-fix",
-    "./skills/engineering/engineering-context-doctor"
+    "./skills/engineering/engineering-context-doctor",
+    "./skills/engineering/app-knowledge-inventory",
+    "./skills/engineering/app-knowledge-publish"
   ],
   "commands": "./commands/",
   "hooks": "./hooks/hooks.json"

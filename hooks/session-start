@@ -48,6 +48,7 @@ For non-trivial Plan/Agent work:
 - Compact engineering rules are auto-attached anchors. For a material domain change, read the relevant canonical standard via its Contents map before editing.
 - Canonical standards live under skills/engineering/_standards/, except the Rust standard at skills/engineering/rust-engineering/references/rust-engineering-standard.md.
 - Audit and fix are separate: audit -> ledger -> fix -> verification -> resolved. A fix never invents findings or reuses a resolved audit.
+- For app repositories with app-knowledge.config.json, maintain evidence-backed versioned knowledge alongside material changes; OpenAPI first and no automatic RAGGW publish.
 - If plugin/rules/skills seem missing or stale, run /engineering-context-doctor or scripts/verify.sh.
 
 Do not preload all engineering standards. Load only sections relevant to the current phase."

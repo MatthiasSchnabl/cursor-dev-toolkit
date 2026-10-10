@@ -12,6 +12,8 @@ One-time install → available in all local Cursor projects via User-scope plugi
 - Pinned runtime bootstrap (gstack, Graphify with SQL schema support, GBrain, Superpowers checkout)
 - `/tooling-doctor`, `/tooling-setup`, `/tooling-update` commands
 - `/engineering-context-doctor` — verifies installed plugin freshness and engineering context architecture
+- `/app-knowledge-inventory` — OpenAPI-gated, evidence-based application knowledge inventory for in-app assistants
+- `/app-knowledge-publish` — explicit RAGGW release-space staging only; never automatic production activation
 - `/rust-engineering-audit` — evidence-based Rust audit; full standard loads progressively from the skill reference
 - `/rust-engineering-fix` — controlled remediation against an open audit in `docs/engineering-audits/rust/`
 - `/rust-axum-engineering-audit` — evidence-based Axum/HTTP audit with progressive standard loading
@@ -115,6 +117,34 @@ edit the cursor-dev-toolkit checkout
 ```
 
 Do not keep a second hand-edited plugin copy.
+
+## Application Knowledge Engineering (opt-in)
+
+Every application has its own assistant (e.g. Rust Rig). RAGGW stores **versioned product/technical knowledge**, not live user data or application action authority. The toolkit is installed once globally; do **not** clone it per project.
+
+**Hard prerequisite:** a bundled OpenAPI **JSON** 3.0/3.1 document with unique operationIds. Missing OpenAPI means immediate abort **before inventory files are written**. The current validator performs structural and local-reference checks; a pinned full OpenAPI conformance linter is still needed for production acceptance.
+
+In any app root:
+
+```bash
+bun "$HOME/.cursor/plugins/local/cursor-dev-toolkit/scripts/app-knowledge.mjs" preflight
+```
+
+Then invoke `/app-knowledge-inventory` to create the app-owned `app-knowledge.config.json` plus `docs/app-knowledge/` artefacts. Follow [the Application Knowledge Contract](docs/application-knowledge-contract.md) and its [config example](docs/examples/app-knowledge.config.example.json). To enforce relevant staged changes before every commit, opt in with:
+
+```bash
+bun "$HOME/.cursor/plugins/local/cursor-dev-toolkit/scripts/app-knowledge.mjs" install-hook
+```
+
+The hook is local to that app, points to the globally installed plugin and refuses to overwrite existing hooks. It invokes `diff-check`: changed watched source files require a staged inventory manifest and updated docs, or a documented no-user-visible-behavior-change decision. A global rule alone cannot enforce Git commits; this local hook does.
+
+The explicit `/app-knowledge-publish` command first creates an immutable release plan, then (only with explicit approval and runtime OAuth credentials) may **stage** the documents to an isolated pre-registered RAGGW Knowledge Space. It **never activates** production. See [RAGGW release integration](docs/application-knowledge-raggw.md).
+
+Offline self-tests:
+
+```bash
+bun "$HOME/.cursor/plugins/local/cursor-dev-toolkit/scripts/app-knowledge.selftest.mjs"
+```
 
 ## Engineering context loading
 

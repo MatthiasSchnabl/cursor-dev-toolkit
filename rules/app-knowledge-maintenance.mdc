@@ -1,0 +1,20 @@
+---
+description: Opt-in application knowledge maintenance for versioned in-app assistant content; only apply when app-knowledge.config.json exists
+globs: "**/app-knowledge.config.json,**/docs/app-knowledge/**,**/api/openapi.json"
+alwaysApply: false
+---
+
+# Application Knowledge Maintenance (opt-in)
+
+If this app has \`app-knowledge.config.json\`, it owns a version-specific knowledge contract for its private in-app assistant. The toolkit is globally installed; never clone it per project.
+
+Before closing a material change to API, user-visible behavior, roles, domain fields, status transitions, UI workflows or assistant tool capabilities:
+
+1. Inspect changed behavior and dependent knowledge documents.
+2. Update affected docs and SHA hashes, or document a concrete no-behavior-change decision in the manifest.
+3. Revalidate OpenAPI operationId coverage and direct code/test evidence.
+4. Run \`app-knowledge.mjs validate\` and \`diff-check\` locally.
+
+Missing/invalid OpenAPI is a **hard stop**, not permission to invent an API specification. Publishing is **never automatic**, only via \`/app-knowledge-publish\`. Dynamic user data and live operations remain inside app-owned tools and backend authorization.
+
+This Rule is advisory. The installed local Git hook provides mechanical commit enforcement once an application opts in.

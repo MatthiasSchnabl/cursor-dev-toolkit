@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "application_id": "example-app",
+  "openapi_path": "api/openapi.json",
+  "knowledge_dir": "docs/app-knowledge",
+  "release_space_prefix": "example-app.release.",
+  "watch_paths": [
+    "src/",
+    "crates/",
+    "backend/",
+    "frontend/src/",
+    "migrations/",
+    "api/"
+  ]
+}
