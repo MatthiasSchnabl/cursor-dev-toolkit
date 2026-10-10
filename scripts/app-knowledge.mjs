@@ -224,7 +224,7 @@ async function stage() {
     return res.json();
   }
   const discovery=await request("/v1/discovery");
-  if(!Array.isArray(discovery.knowledge_spaces)||!discovery.knowledge_spaces.some(x=>(x.key===space||x.knowledge_space_key===space)&&x.can_write===true)) fatal("STAGE_DENIED: release space is not explicitly registered with write grant");
+  if(!Array.isArray(discovery.knowledge_spaces)||!discovery.knowledge_spaces.some(x=>(x.space_key===space)&&x.can_write===true)) fatal("STAGE_DENIED: release space is not explicitly registered with write grant");
   let maxRevision=0;
   for(const doc of result.manifest.documents) {
     const content=fs.readFileSync(safePath(doc.path),"utf8");
