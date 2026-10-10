@@ -44,6 +44,10 @@ After successful preflight, create/update `app-knowledge.config.json`, `docs/app
 - Never include production data, personal data, API tokens or direct database extracts.
 - Keep Git source commit separate from mutable manifest hashes; publish records a commit SHA later.
 
+## Optional local commit gate
+
+After the first inventory is complete and validated, offer to run `bun "$CURSOR_DEV_TOOLKIT_ROOT/scripts/app-knowledge.mjs" install-hook --root "$APP_ROOT"`. It creates a local pre-commit hook calling the **globally installed** toolkit, without adding any cloned toolkit files to this app. Do not overwrite existing hooks; surface manual integration when already present.
+
 ## Closure
 
 Run `bun "$CURSOR_DEV_TOOLKIT_ROOT/scripts/app-knowledge.mjs" validate --root "$APP_ROOT"`.
