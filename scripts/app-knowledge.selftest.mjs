@@ -3,11 +3,12 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import {fileURLToPath} from "node:url";
 import crypto from "node:crypto";
 import child from "node:child_process";
 import assert from "node:assert/strict";
 
-const script=path.join(path.dirname(new URL(import.meta.url).pathname),"app-knowledge.mjs");
+const script=path.join(path.dirname(fileURLToPath(import.meta.url)),"app-knowledge.mjs");
 const sha=s=>crypto.createHash("sha256").update(s).digest("hex");
 const tmp=fs.mkdtempSync(path.join(os.tmpdir(),"app-knowledge-test-"));
 const repo=path.join(tmp,"sample");
@@ -41,7 +42,7 @@ try {
   assert.notEqual(cli("stage").status,0,"staging must require explicit fingerprint approval");
   write("docs/app-knowledge/api/guide.md","# changed content\n");
   assert.match(cli("validate").stderr,/DOCUMENT_DRIFT/);
-  write("docs/app-knowledge/api/guide.md","# api\n\nVerified sample.\n");
+  write("docs/app-knowledge/api/guide.md","# api\n\nVerified sample.\n\n");
   assert.notEqual(cli("validate").status,0,"hash must match exact bytes");
   write("docs/app-knowledge/api/guide.md","# api\n\nVerified sample.\n");
   manifest.documents.find(x=>x.kind==="api").sha256=sha("# api\n\nVerified sample.\n");
