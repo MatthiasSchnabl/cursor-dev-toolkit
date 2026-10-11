@@ -38,6 +38,13 @@ command -v bun >/dev/null 2>&1 || fail "bun not on PATH"
 [[ "$(bun --version)" == "$BUN_VERSION" ]] || fail "bun version mismatch"
 pass "bun $BUN_VERSION"
 
+if command -v node >/dev/null 2>&1; then
+  node "$SCRIPT_DIR/frontend-preflight.selftest.mjs"
+  pass "frontend framework version gate offline regression tests"
+else
+  skip "frontend gate tests (node not on PATH; mandatory when using Next.js or SvelteKit)"
+fi
+
 bun "$SCRIPT_DIR/app-knowledge.selftest.mjs"
 pass "application knowledge offline regression tests"
 

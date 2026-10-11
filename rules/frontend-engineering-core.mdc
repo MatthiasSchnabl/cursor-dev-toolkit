@@ -1,0 +1,21 @@
+---
+description: Frontend architecture and deterministic version preflight anchor — framework native, strict TS, tested versions only
+globs: "**/*.ts,**/*.tsx,**/*.svelte,**/package.json,**/tsconfig.json"
+alwaysApply: false
+---
+
+# Frontend Engineering Core (conditional)
+
+**Only apply** if the nearest package.json declares Next.js or @sveltejs/kit. Determine frontend package root in a monorepo before reading frontend code or editing.
+
+Before material frontend code/design/architecture changes or explicit frontend audit/fix:
+
+1. Run the installed plugin's read-only version gate:
+   node "$CURSOR_DEV_TOOLKIT_ROOT/scripts/frontend-preflight.mjs" --root "$FRONTEND_ROOT"
+2. If it fails, **STOP**; report exact installed and required versions and ask the user for explicit approval to *plan and perform* a framework migration. No implicit package installation, codemod or partial editing.
+3. On PASS, read relevant sections of $CURSOR_DEV_TOOLKIT_ROOT/skills/engineering/_standards/frontend-engineering-core.md.
+4. Detect Next.js vs SvelteKit from the frontend package, apply **only** the matching framework standard.
+
+Hard invariants: strict TypeScript/runtime validation, server-side authorization, no browser secrets/cross-user state leakage, framework-native data flow, meaningful tests, and local checks before hosted CI. No design/animation mandates.
+
+Explicit workflows: /frontend-engineering-audit and /frontend-engineering-fix.

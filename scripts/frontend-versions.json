@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "checked_on": "2026-10-11",
+  "policy": "exact tested framework patch; minimum documented runtime/peer floors; never auto-upgrade",
+  "frameworks": {
+    "nextjs": {
+      "primary": {
+        "package": "next",
+        "version": "16.4.0"
+      },
+      "node_min": "20.9.0",
+      "minimum_packages": {
+        "typescript": "5.1.0",
+        "react": "19.0.0",
+        "react-dom": "19.0.0"
+      },
+      "migration_url": "https://nextjs.org/docs/app/getting-started/upgrading",
+      "supported_major_packages": {
+        "react": 19,
+        "react-dom": 19
+      }
+    },
+    "sveltekit": {
+      "primary": {
+        "package": "@sveltejs/kit",
+        "version": "3.0.0"
+      },
+      "node_min": "22.17.0",
+      "minimum_packages": {
+        "svelte": "5.57.1",
+        "typescript": "6.0.0",
+        "vite": "8.0.12",
+        "@sveltejs/vite-plugin-svelte": "7.0.0"
+      },
+      "migration_url": "https://svelte.dev/docs/kit/migrating-to-sveltekit-3",
+      "supported_major_packages": {
+        "svelte": 5,
+        "typescript": 6,
+        "vite": 8,
+        "@sveltejs/vite-plugin-svelte": 7
+      }
+    }
+  }
+}

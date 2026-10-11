@@ -1,0 +1,22 @@
+---
+description: SvelteKit 3 routing, server load/actions and Svelte 5 runes — version-gated anchor
+globs: "**/*.svelte,**/+page.*,**/+layout.*,**/+server.ts,**/hooks.server.ts,**/vite.config.*"
+alwaysApply: false
+---
+
+# SvelteKit engineering anchor
+
+**Only apply** when the active frontend package declares @sveltejs/kit. Never apply SvelteKit patterns to a Next.js/Vite-only app.
+
+Before a substantial change, audit or fix, run:
+node "$CURSOR_DEV_TOOLKIT_ROOT/scripts/frontend-preflight.mjs" --root "$FRONTEND_ROOT" --framework sveltekit
+
+Requires tested SvelteKit 3.0.0 and documented v3 runtime/peer minimums. Failure means STOP and ask for explicit upgrade approval. Do not auto-upgrade or apply v3 conventions to v2.
+
+On PASS, use relevant Contents sections:
+$CURSOR_DEV_TOOLKIT_ROOT/skills/engineering/_standards/sveltekit-engineering-standard.md
+plus the shared Frontend Core.
+
+Hard invariants: server-only data in server load/action, request-local identity, Svelte 5 runes semantics, native forms, correct SSR/hydration; SvelteKit 3 Vite config and #lib import migration. Remote functions remain experimental and require opt-in.
+
+Explicit workflows: /sveltekit-engineering-audit and /sveltekit-engineering-fix.

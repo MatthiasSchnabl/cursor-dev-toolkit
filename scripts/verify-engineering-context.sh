@@ -31,6 +31,9 @@ required_rules=(
   rust-rig-agentic-engineering-standard.mdc
   observability-logging-tracing-engineering-standard.mdc
   app-knowledge-maintenance.mdc
+  frontend-engineering-core.mdc
+  nextjs-engineering-standard.mdc
+  sveltekit-engineering-standard.mdc
 )
 
 for rule in "${required_rules[@]}"; do
@@ -42,6 +45,19 @@ for rule in "${required_rules[@]}"; do
   else
     [[ "$lines" -le 120 ]] || fail "$rule is too large ($lines lines; max 120)"
   fi
+done
+[[ -f "$PLUGIN_DIR/scripts/frontend-versions.json" ]] || fail "frontend tested version policy missing"
+[[ -f "$PLUGIN_DIR/scripts/frontend-preflight.mjs" ]] || fail "frontend version preflight missing"
+[[ -f "$PLUGIN_DIR/scripts/frontend-preflight.selftest.mjs" ]] || fail "frontend version gate selftest missing"
+grep -Fq '"version": "16.4.0"' "$PLUGIN_DIR/scripts/frontend-versions.json" ||
+  fail "Next.js tested framework pin missing"
+grep -Fq '"version": "3.0.0"' "$PLUGIN_DIR/scripts/frontend-versions.json" ||
+  fail "SvelteKit tested framework pin missing"
+for framework_rule in frontend-engineering-core.mdc nextjs-engineering-standard.mdc sveltekit-engineering-standard.mdc; do
+  grep -q '^globs:' "$PLUGIN_DIR/rules/$framework_rule" ||
+    fail "frontend rule missing scoped globs: $framework_rule"
+  grep -q '^alwaysApply: false' "$PLUGIN_DIR/rules/$framework_rule" ||
+    fail "frontend rule must not be globally always-on: $framework_rule"
 done
 pass "engineering rules are compact and present"
 
@@ -63,6 +79,12 @@ required_skills=(
   app-knowledge-inventory
   app-knowledge-publish
   raggw-consumer-onboard
+  frontend-engineering-audit
+  frontend-engineering-fix
+  nextjs-engineering-audit
+  nextjs-engineering-fix
+  sveltekit-engineering-audit
+  sveltekit-engineering-fix
 )
 
 for skill_name in "${required_skills[@]}"; do

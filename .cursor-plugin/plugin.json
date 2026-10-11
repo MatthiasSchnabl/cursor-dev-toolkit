@@ -1,8 +1,8 @@
 {
   "name": "cursor-dev-toolkit",
   "displayName": "Cursor Dev Toolkit",
-  "description": "Global developer tooling and context-efficient Rust engineering standards, audit/fix skills, hooks, bootstrap, and local verification",
-  "version": "0.3.1",
+  "description": "Global Cursor developer tooling: Rust engineering plus version-gated Next.js and SvelteKit frontend standards, audit/fix skills, hooks, bootstrap and local verification",
+  "version": "0.4.0",
   "author": {
     "name": "Matthias Schnabl"
   },
@@ -36,7 +36,13 @@
     "./skills/engineering/engineering-context-doctor",
     "./skills/engineering/app-knowledge-inventory",
     "./skills/engineering/app-knowledge-publish",
-    "./skills/engineering/raggw-consumer-onboard"
+    "./skills/engineering/raggw-consumer-onboard",
+    "./skills/engineering/frontend-engineering-audit",
+    "./skills/engineering/frontend-engineering-fix",
+    "./skills/engineering/nextjs-engineering-audit",
+    "./skills/engineering/nextjs-engineering-fix",
+    "./skills/engineering/sveltekit-engineering-audit",
+    "./skills/engineering/sveltekit-engineering-fix"
   ],
   "commands": "./commands/",
   "hooks": "./hooks/hooks.json"
