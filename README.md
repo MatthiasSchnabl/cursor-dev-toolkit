@@ -12,6 +12,9 @@ One-time install → available in all local Cursor projects via User-scope plugi
 - Pinned runtime bootstrap (gstack, Graphify with SQL schema support, GBrain, Superpowers checkout)
 - `/tooling-doctor`, `/tooling-setup`, `/tooling-update` commands
 - `/engineering-context-doctor` — verifies installed plugin freshness and engineering context architecture
+- `/frontend-engineering-audit` / `/frontend-engineering-fix` — shared TypeScript frontend architecture audit/fix
+- `/nextjs-engineering-audit` / `/nextjs-engineering-fix` — Next.js 16.4 App Router with strict version gate
+- `/sveltekit-engineering-audit` / `/sveltekit-engineering-fix` — SvelteKit 3 / Svelte 5 with strict version gate
 - `/app-knowledge-inventory` — OpenAPI-gated, evidence-based application knowledge inventory for in-app assistants
 - `/app-knowledge-publish` — explicit RAGGW release-space staging only; never automatic production activation
 - `/raggw-consumer-onboard` — on-demand private, pinned RAGGW consumer bootstrap with integrity checks
@@ -165,6 +168,36 @@ Offline self-tests:
 ```bash
 bun "$HOME/.cursor/plugins/local/cursor-dev-toolkit/scripts/app-knowledge.selftest.mjs"
 ```
+
+## Frontend Engineering (Next.js and SvelteKit)
+
+The global plugin now includes **three separate standards** with a shared core. No extra toolkit clone in the application repo:
+
+- [Frontend Engineering Core](skills/engineering/_standards/frontend-engineering-core.md): TypeScript, API contracts, state, security, reliability, tests and accessibility (not visual design).
+- [Next.js Standard](skills/engineering/_standards/nextjs-engineering-standard.md): **Next.js 16.4.0 App Router**, Server/Client Components, Server Functions and configuration-aware Cache Components.
+- [SvelteKit Standard](skills/engineering/_standards/sveltekit-engineering-standard.md): **SvelteKit 3.0.0**, Svelte 5 runes, server/universal load, native form actions, SSR and new v3 Vite configuration.
+
+**Read-only hard gate:** the tested, time-stamped release pins are held in [frontend-versions.json](scripts/frontend-versions.json). As of October 11, 2026 the framework pins are Next.js 16.4.0 and SvelteKit 3.0.0. Peer/runtime minimums come from manufacturer migration docs; patch pins are intentionally strict until the standard has been revalidated.
+
+In the **frontend package root** (e.g. project/frontend in a monorepo), with Node and installed packages:
+
+```bash
+node "$HOME/.cursor/plugins/local/cursor-dev-toolkit/scripts/frontend-preflight.mjs" --root .
+```
+
+The gate detects the framework from package.json and validates **actual node_modules package versions**, compatible declared semver ranges, router/config mode, runtime floors, lockfile and build script. A shared workspace-root lockfile is recognized. Without installed dependencies the result is a hard stop; ask permission to install using the project's current package manager. The gate does not contact registries, install anything or change files.
+
+If the project differs from the tested baseline, the agent must **STOP and ask you** whether to prepare a controlled upgrade. If approved, it should assess official migration instructions, peers, version impact, tests and rollout before making changes. Never silently run interactive or non-interactive codemods. A decline means no v3/v16 standard-driven edits to the older app.
+
+Run explicit audit/fix workflows from Cursor, never merge the two phases. Audits write source-evidenced ledgers in docs/engineering-audits/{frontend,nextjs,sveltekit}/. Fixes require an existing eligible open/partial ledger and local type, lint, test and production-build gates.
+
+Run offline regression tests locally:
+
+```bash
+node "$HOME/.cursor/plugins/local/cursor-dev-toolkit/scripts/frontend-preflight.selftest.mjs"
+```
+
+Version evidence: [Next.js 16.4 announcement](https://nextjs.org/blog/next-16-4), [Next upgrading](https://nextjs.org/docs/app/getting-started/upgrading), [SvelteKit 3 release](https://svelte.dev/blog/sveltekit-3-is-here), [SvelteKit 3 migration](https://svelte.dev/docs/kit/migrating-to-sveltekit-3).
 
 ## Engineering context loading
 
