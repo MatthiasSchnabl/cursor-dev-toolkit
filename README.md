@@ -14,6 +14,7 @@ One-time install → available in all local Cursor projects via User-scope plugi
 - `/engineering-context-doctor` — verifies installed plugin freshness and engineering context architecture
 - `/app-knowledge-inventory` — OpenAPI-gated, evidence-based application knowledge inventory for in-app assistants
 - `/app-knowledge-publish` — explicit RAGGW release-space staging only; never automatic production activation
+- `/raggw-consumer-onboard` — on-demand private, pinned RAGGW consumer bootstrap with integrity checks
 - `/rust-engineering-audit` — evidence-based Rust audit; full standard loads progressively from the skill reference
 - `/rust-engineering-fix` — controlled remediation against an open audit in `docs/engineering-audits/rust/`
 - `/rust-axum-engineering-audit` — evidence-based Axum/HTTP audit with progressive standard loading
@@ -117,6 +118,25 @@ edit the cursor-dev-toolkit checkout
 ```
 
 Do not keep a second hand-edited plugin copy.
+
+## RAGGW Consumer Bootstrap (on demand, private pin)
+
+In any new consumer application, run `/raggw-consumer-onboard`. The global toolkit command loads the canonical private RAGGW consumer skill **only when needed**. No private RAGGW skill content is checked into this public toolkit or duplicated across applications.
+
+The toolkit pins the annotated RAGGW tag `raggw-consumer-bootstrap-1` to commit `edeacb51d1d9067bcfbce8e9bda2e04bf74996bb` and verifies the skill tree and individual file hashes. Access to the private `MatthiasSchnabl/RAGGW` repository is required. Configure Git Credential Manager, or `gh auth login` followed by `gh auth setup-git`. Do not place tokens in scripts or remotes.
+
+Manual access from Git Bash, Linux or macOS:
+
+```bash
+TOOLKIT_ROOT="${CURSOR_DEV_TOOLKIT_ROOT:-$HOME/.cursor/plugins/local/cursor-dev-toolkit}"
+bash "$TOOLKIT_ROOT/scripts/raggw-consumer-bootstrap.sh" --pin
+bash "$TOOLKIT_ROOT/scripts/raggw-consumer-bootstrap.sh" install
+bash "$TOOLKIT_ROOT/scripts/raggw-consumer-bootstrap.sh" --check
+```
+
+The last command prints the path to the **verified private canonical** `SKILL.md`, cached under `~/.cursor/raggw-consumer-bootstrap/<commit>/`. This cache is not committed or uploaded. The loader refuses missing access, SHA/tree/hash drift and modified caches. A new RAGGW skill version requires deliberate changes to the pin and lock in the toolkit, not a moving `main` reference.
+
+The skill prepares operator provisioning and guides REST, MCP, ingestion and retrieval validation; it does not self-provision Production or execute business actions. `/app-knowledge-inventory` and `/app-knowledge-publish` remain separate application-owned knowledge-management workflows.
 
 ## Application Knowledge Engineering (opt-in)
 

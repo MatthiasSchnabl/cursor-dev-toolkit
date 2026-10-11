@@ -62,6 +62,7 @@ required_skills=(
   engineering-context-doctor
   app-knowledge-inventory
   app-knowledge-publish
+  raggw-consumer-onboard
 )
 
 for skill_name in "${required_skills[@]}"; do
@@ -71,6 +72,17 @@ for skill_name in "${required_skills[@]}"; do
     fail "engineering skill not registered in plugin manifest: $skill_name"
 done
 pass "required engineering skills are registered in plugin manifest"
+
+[[ -f "$PLUGIN_DIR/scripts/raggw-consumer-bootstrap.lock" ]] ||
+  fail "missing pinned RAGGW consumer skill lock"
+[[ -f "$PLUGIN_DIR/scripts/raggw-consumer-bootstrap.sh" ]] ||
+  fail "missing RAGGW consumer bootstrap installer"
+raggw_pin="$(bash "$PLUGIN_DIR/scripts/raggw-consumer-bootstrap.sh" --pin)" ||
+  fail "RAGGW consumer bootstrap pin invalid"
+printf '%s' "$raggw_pin" | grep -Fq "commit=edeacb51d1d9067bcfbce8e9bda2e04bf74996bb" ||
+  fail "RAGGW consumer bootstrap commit pin changed without verifier review"
+pass "RAGGW consumer bootstrap pin and integrity lock present (offline)"
+
 
 skill_count=0
 while IFS= read -r skill; do
