@@ -38,6 +38,12 @@ Canonical detailed standards are read from `$CURSOR_DEV_TOOLKIT_ROOT` (set by th
 - Rig/Agentic → `$CURSOR_DEV_TOOLKIT_ROOT/skills/engineering/_standards/rust-rig-agentic-engineering-standard.md`
 - Observability → `$CURSOR_DEV_TOOLKIT_ROOT/skills/engineering/_standards/observability-logging-tracing-engineering-standard.md`
 
+- Frontend Core → `$CURSOR_DEV_TOOLKIT_ROOT/skills/engineering/_standards/frontend-engineering-core.md`
+- SvelteKit 3 → `$CURSOR_DEV_TOOLKIT_ROOT/skills/engineering/_standards/sveltekit-engineering-standard.md`
+- Next.js 16.4 App Router → `$CURSOR_DEV_TOOLKIT_ROOT/skills/engineering/_standards/nextjs-engineering-standard.md`
+
+For frontend work, determine the actual nested frontend package root, run the **read-only mandatory version gate** at `$CURSOR_DEV_TOOLKIT_ROOT/scripts/frontend-preflight.mjs`, then load only the matching framework rules. Any mismatch or missing installed dependencies means **STOP and ask the user for explicit consent** before planning an upgrade. Do not automatically install packages, run codemods or apply a different framework version's rules.
+
 For any long reference: read **Contents** first, then load only sections needed for the current phase.
 
 ## App knowledge (opt-in)
