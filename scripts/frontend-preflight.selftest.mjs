@@ -34,6 +34,14 @@ try {
   assert.notEqual(old.status,0);
   assert.match(old.stderr,/UPGRADE_APPROVAL_REQUIRED/);
   installed('next','16.4.0');
+  installed('react','20.0.0');
+  assert.match(run().stderr,/PEER_MAJOR_UNVERIFIED/);
+  installed('react','19.3.0');
+  write('package.json',{scripts:{build:'next build'},dependencies:{next:'^15.0.0',react:'^19.0.0','react-dom':'^19.0.0'},devDependencies:{typescript:'^5.1.0'}});
+  assert.match(run().stderr,/PACKAGE_LOCK_DRIFT/);
+  write('package.json',{scripts:{build:'next build'},dependencies:{next:'^16.4.0',react:'^19.0.0','react-dom':'^19.0.0'},devDependencies:{typescript:'^5.1.0'},packageManager:'pnpm@10.0.0'});
+  assert.match(run().stderr,/PACKAGE_MANAGER_MISMATCH/);
+  write('package.json',{scripts:{build:'next build'},dependencies:{next:'^16.4.0',react:'^19.0.0','react-dom':'^19.0.0'},devDependencies:{typescript:'^5.1.0'}});
   write('yarn.lock','synthetic extra lock');
   assert.match(run().stderr,/LOCKFILE_AMBIGUOUS/);
   fs.unlinkSync(path.join(root,'yarn.lock'));
