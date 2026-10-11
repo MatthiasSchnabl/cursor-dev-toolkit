@@ -185,6 +185,12 @@ In the **frontend package root** (e.g. project/frontend in a monorepo), with Nod
 node "$HOME/.cursor/plugins/local/cursor-dev-toolkit/scripts/frontend-preflight.mjs" --root .
 ```
 
+Windows PowerShell (from the frontend package root, not necessarily the Git repository root):
+
+```powershell
+node "$HOME\.cursor\plugins\local\cursor-dev-toolkit\scripts\frontend-preflight.mjs" --root .
+```
+
 The gate detects the framework from package.json and validates **actual node_modules package versions**, compatible declared semver ranges, router/config mode, runtime floors, lockfile and build script. A shared workspace-root lockfile is recognized. Without installed dependencies the result is a hard stop; ask permission to install using the project's current package manager. The gate does not contact registries, install anything or change files.
 
 If the project differs from the tested baseline, the agent must **STOP and ask you** whether to prepare a controlled upgrade. If approved, it should assess official migration instructions, peers, version impact, tests and rollout before making changes. Never silently run interactive or non-interactive codemods. A decline means no v3/v16 standard-driven edits to the older app.
