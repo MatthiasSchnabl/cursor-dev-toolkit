@@ -63,9 +63,26 @@ if (framework === 'sveltekit') {
   const viteConfig = ['vite.config.ts', 'vite.config.js', 'vite.config.mjs'].find(x => fs.existsSync(path.join(root,x)));
   if (!viteConfig || !fs.readFileSync(path.join(root,viteConfig),'utf8').includes('@sveltejs/kit/vite')) fail('SVELTEKIT3_VITE_CONFIG_REQUIRED: configure the kit plugin in vite.config.*');
 }
-const lockfiles = ['package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'bun.lock', 'bun.lockb'].filter(x => fs.existsSync(path.join(root,x)));
-if (lockfiles.length === 0) fail('LOCKFILE_REQUIRED: commit and use a reproducible package-manager lockfile');
-if (lockfiles.length > 1) fail('LOCKFILE_AMBIGUOUS: multiple package-manager lockfiles at package root');
+const knownLocks = ['package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'bun.lock', 'bun.lockb'];
+let lockDir = root, lockfiles = [];
+for (let depth=0; depth<6; depth++) {
+  lockfiles=knownLocks.filter(x=>fs.existsSync(path.join(lockDir,x)));
+  if (lockfiles.length) break;
+  if (fs.existsSync(path.join(lockDir,'.git'))) break;
+  const parent=path.dirname(lockDir);
+  if (parent===lockDir) break;
+  lockDir=parent;
+}
+if (lockfiles.length === 0) fail('LOCKFILE_REQUIRED: no package/workspace lockfile found');
+if (lockfiles.length > 1) fail('LOCKFILE_AMBIGUOUS: multiple lockfiles at '+lockDir);
+if (lockfiles.length===1) {
+  info.push('lockfile='+path.relative(root,path.join(lockDir,lockfiles[0])));
+  const manager=typeof pkg?.packageManager==='string' ? pkg.packageManager.split('@')[0] : null;
+  const expected={npm:'package-lock.json',pnpm:'pnpm-lock.yaml',yarn:'yarn.lock',bun:'bun.lock'};
+  if (manager && expected[manager] && ![expected[manager],manager==='bun'?'bun.lockb':''].includes(lockfiles[0])) {
+    fail('PACKAGE_MANAGER_MISMATCH: packageManager='+manager+' but lockfile='+lockfiles[0]);
+  }
+}
 if (!pkg?.scripts || !pkg.scripts.build) fail('BUILD_SCRIPT_REQUIRED: package.json scripts.build');
 for (const s of info) console.log('[INFO] '+s);
 if (errors.length) {
