@@ -37,13 +37,35 @@ const minimum = (v, floor) => {
   const a = parts(v), b = parts(floor);
   return a[0] > b[0] || (a[0] === b[0] && (a[1] > b[1] || (a[1] === b[1] && a[2] >= b[2])));
 };
+const declaredConsistent = (name, actual) => {
+  const declared = dependencies[name];
+  if (typeof declared !== 'string') {
+    fail('DEPENDENCY_DECLARATION_REQUIRED: missing package.json dependency '+name);
+    return;
+  }
+  const normalized = declared.replace(/^[~^]/, '');
+  if (!stable(normalized) || !stable(actual)) {
+    fail('DEPENDENCY_DECLARATION_UNVERIFIED: '+name+' declared '+declared+'; use a verifiable semver range for this strict baseline');
+    return;
+  }
+  const [major, minor, patch] = parts(normalized);
+  const [installedMajor, installedMinor, installedPatch] = parts(actual);
+  const allows = declared.startsWith('^') ?
+    installedMajor===major && minimum(actual, normalized) :
+    declared.startsWith('~') ?
+      installedMajor===major && installedMinor===minor && installedPatch>=patch :
+      actual===normalized;
+  if (!allows) fail('PACKAGE_LOCK_DRIFT: '+name+' declared '+declared+' but installed '+actual+'; update manifest and lock only with approval');
+};
 const checkExact = (name, target) => {
   const v = packageVersion(name);
+  if (v) declaredConsistent(name, v);
   if (v && v !== target) fail('UPGRADE_APPROVAL_REQUIRED: ' + name + ' installed ' + v + ', toolkit tested ' + target + '. Stop and ask user before any upgrade.');
   else if (v) info.push(name + ' ' + v);
 };
 const checkMin = (name, target) => {
   const v = packageVersion(name);
+  if (v) declaredConsistent(name, v);
   if (v && !minimum(v, target)) fail('UPGRADE_APPROVAL_REQUIRED: ' + name + ' installed ' + v + ', minimum ' + target + '. Stop and ask user before any upgrade.');
   else if (v) info.push(name + ' ' + v + ' (>= ' + target + ')');
 };
@@ -87,7 +109,7 @@ if (!pkg?.scripts || !pkg.scripts.build) fail('BUILD_SCRIPT_REQUIRED: package.js
 for (const s of info) console.log('[INFO] '+s);
 if (errors.length) {
   for (const s of errors) console.error('[FAIL] '+s);
-  if (framework) {
+  if (framework && selected) {
     console.error('[STOP] No code changes, dependency installs, codemods or tests against the new standards.');
     console.error('[ACTION] Ask: "The project does not match the tested ' + framework + ' version (' + selected?.primary.version + '). May I plan and perform a controlled upgrade?"');
     console.error('[ACTION] On approval: inspect breaking changes and peer requirements; prepare migration on a dedicated branch; then install, test and rerun this gate. Do not auto-accept codemod defaults.');
