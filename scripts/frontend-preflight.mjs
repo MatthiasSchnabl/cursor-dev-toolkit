@@ -76,6 +76,12 @@ if (selected) {
   if (!minimum(nodeVersion, selected.node_min)) fail('NODE_RUNTIME_INCOMPATIBLE: Node ' + nodeVersion + '; ' + framework + ' requires >= ' + selected.node_min);
   checkExact(selected.primary.package, selected.primary.version);
   for (const [name, floor] of Object.entries(selected.minimum_packages ?? {})) checkMin(name, floor);
+  for (const [name, major] of Object.entries(selected.supported_major_packages ?? {})) {
+    const installed = packageVersion(name);
+    if (installed && stable(installed) && parts(installed)[0] !== major) {
+      fail('PEER_MAJOR_UNVERIFIED: ' + name + ' ' + installed + '; this standard supports major ' + major + ' only');
+    }
+  }
 }
 if (framework === 'nextjs') {
   if (!['app', 'src/app'].some(x => fs.existsSync(path.join(root,x)))) fail('APP_ROUTER_REQUIRED: no app/ or src/app/ found. Pages Router requires separate migration.');
