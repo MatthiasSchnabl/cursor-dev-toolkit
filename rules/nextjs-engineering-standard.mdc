@@ -1,0 +1,22 @@
+---
+description: Next.js 16.4 App Router, Server Components, Server Functions and cache boundaries — version-gated
+globs: "**/*.tsx,**/next.config.*,**/app/**/page.tsx,**/app/**/layout.tsx,**/app/**/route.ts"
+alwaysApply: false
+---
+
+# Next.js engineering anchor
+
+**Only apply** when the active frontend package declares next. Do not impose Next.js patterns on SvelteKit or a non-Next React project.
+
+Before a material change, audit or fix, run:
+node "$CURSOR_DEV_TOOLKIT_ROOT/scripts/frontend-preflight.mjs" --root "$FRONTEND_ROOT" --framework nextjs
+
+Requires tested Next.js 16.4.0 with App Router and compatible Node/TS/React baseline. On failure STOP and explicitly ask permission for a controlled upgrade/migration; never install/codemod automatically.
+
+On PASS, read relevant Contents sections:
+$CURSOR_DEV_TOOLKIT_ROOT/skills/engineering/_standards/nextjs-engineering-standard.md
+plus the shared Frontend Core.
+
+Hard invariants: default Server Components, narrow use client boundary, server-side authorization on each Server Function, direct server data access rather than self HTTP, version-aware Cache Components with user scope. Inspect next.config first; do not silently enable cacheComponents on existing apps.
+
+Explicit workflows: /nextjs-engineering-audit and /nextjs-engineering-fix.
