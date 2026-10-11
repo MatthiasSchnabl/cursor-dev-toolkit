@@ -14,7 +14,11 @@
         "react": "19.0.0",
         "react-dom": "19.0.0"
       },
-      "migration_url": "https://nextjs.org/docs/app/getting-started/upgrading"
+      "migration_url": "https://nextjs.org/docs/app/getting-started/upgrading",
+      "supported_major_packages": {
+        "react": 19,
+        "react-dom": 19
+      }
     },
     "sveltekit": {
       "primary": {
@@ -28,7 +32,13 @@
         "vite": "8.0.12",
         "@sveltejs/vite-plugin-svelte": "7.0.0"
       },
-      "migration_url": "https://svelte.dev/docs/kit/migrating-to-sveltekit-3"
+      "migration_url": "https://svelte.dev/docs/kit/migrating-to-sveltekit-3",
+      "supported_major_packages": {
+        "svelte": 5,
+        "typescript": 6,
+        "vite": 8,
+        "@sveltejs/vite-plugin-svelte": 7
+      }
     }
   }
 }
