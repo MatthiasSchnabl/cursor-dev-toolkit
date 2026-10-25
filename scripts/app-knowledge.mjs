@@ -244,14 +244,17 @@ async function stage() {
     const job=await request("/v1/documents",{method:"POST",headers:{"Content-Type":"application/json","Idempotency-Key":idempotencyKey},body});
     if(!job.job_id) fatal("RAGGW ingest returned no job_id");
     let done=false;
-    for(let n=0;n<35;n++) {
+    // Durable ingestion can legitimately take minutes on CPU TEI, including retries.
+    // This bounds staging wait time without creating extra jobs or activating the release.
+    const pollDeadline=Date.now()+20*60*1000;
+    for(let n=0;Date.now()<pollDeadline;n++) {
       const j=await request("/v1/jobs/"+encodeURIComponent(job.job_id));
       if(j.state==="succeeded") {
         maxRevision=Math.max(maxRevision,Number(j.result?.knowledge_revision)||0);
         done=true; break;
       }
       if(j.state==="failed"||j.state==="dead_letter") fatal("RAGGW ingest failed for "+doc.id+" ("+(j.error?.error_code||"unknown")+")");
-      await new Promise(resolve=>setTimeout(resolve,500));
+      await new Promise(resolve=>setTimeout(resolve,1500));
     }
     if(!done) fatal("RAGGW ingest polling expired for "+doc.id);
     console.log("[STAGED] "+doc.id);
