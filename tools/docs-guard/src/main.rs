@@ -6,7 +6,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fs, io::Write,
     path::{Component, Path, PathBuf},
-    process::{Command, Stdio},
+    process::{Command, ExitCode, Stdio},
 };
 
 type Result<T> = std::result::Result<T, String>;
@@ -15,8 +15,10 @@ const CONFIG: &str = "docs-guard.toml";
 #[derive(Parser)]
 #[command(version, about = "Offline Git-snapshot documentation governance")]
 struct Cli {
+    /// Repository root or a directory inside it.
     #[arg(long, global = true, default_value = ".")]
     root: PathBuf,
+    /// Emit a single versioned JSON result instead of human output.
     #[arg(long, global = true)]
     json: bool,
     #[command(subcommand)]
@@ -24,29 +26,41 @@ struct Cli {
 }
 #[derive(Subcommand)]
 enum Action {
+    /// Create a configuration template without overwriting existing files.
     Init,
+    /// Regenerate derived files from the staged Git index; never stage them.
     Generate,
+    /// Preview generation without writing files.
     Plan,
+    /// Check an immutable commit (HEAD by default) or the staged index.
     Check {
+        /// Check staged content rather than a commit.
         #[arg(long, conflicts_with = "commit")]
         index: bool,
+        /// Resolve and check this commit or ref.
         #[arg(long)]
         commit: Option<String>,
     },
+    /// Report documentation findings for the selected snapshot.
     Status {
         #[arg(long, conflicts_with = "commit")]
         index: bool,
         #[arg(long)]
         commit: Option<String>,
     },
+    /// Report the installed CLI and Git environment.
     Doctor,
 }
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum Profile { Minimal, Standard, Production, Scientific }
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Config {
     schema_version: u32,
     repository: String,
-    profile: String,
+    profile: Profile,
     register: String,
     manifest: String,
     #[serde(default)]
@@ -81,6 +95,7 @@ struct Finding {
 }
 #[derive(Serialize)]
 struct Report {
+    schema_version: u32,
     version: &'static str,
     snapshot: String,
     repository: String,
@@ -96,7 +111,20 @@ fn finding(code: &'static str, path: &str, detail: impl Into<String>) -> Finding
 
 fn git(root: &Path, args: &[&str], input: Option<&[u8]>) -> Result<Vec<u8>> {
     let mut command = Command::new("git");
-    command.current_dir(root).args(args).stdout(Stdio::piped()).stderr(Stdio::piped());
+    // An alternate Git index/worktree changes the meaning of the checked snapshot.
+    // Reject rather than silently checking a different repository or index.
+    for key in ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE"] {
+        if std::env::var_os(key).is_some() {
+            return Err(format!("unsupported Git environment override: {key}"));
+        }
+    }
+    command.current_dir(root)
+        .env("GIT_NO_REPLACE_OBJECTS","1")
+        .env("GIT_NO_LAZY_FETCH","1")
+        .env("GIT_OPTIONAL_LOCKS","0")
+        .env("GIT_TERMINAL_PROMPT","0")
+        .env("GIT_ALLOW_PROTOCOL","")
+        .args(args).stdout(Stdio::piped()).stderr(Stdio::piped());
     command.stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() });
     let mut child = command.spawn().map_err(|e| format!("cannot start git: {e}"))?;
     if let Some(bytes) = input {
@@ -158,20 +186,19 @@ fn within(path: &str, prefix: &str) -> bool {
     path == prefix || path.strip_prefix(prefix).is_some_and(|rest| rest.starts_with('/'))
 }
 impl Config {
-    fn required_roles(&self) -> Result<Vec<&'static str>> {
+    fn required_roles(&self) -> Vec<&'static str> {
         let mut roles = vec!["scope", "agent_rules", "index", "status"];
-        match self.profile.as_str() {
-            "minimal" => (),
-            "standard" | "production" | "scientific" => roles.extend(["architecture", "decisions", "verification", "handoff", "history"]),
-            _ => return Err(format!("unknown profile: {}", self.profile)),
+        match self.profile {
+            Profile::Minimal => (),
+            Profile::Standard | Profile::Production | Profile::Scientific => roles.extend(["architecture", "decisions", "verification", "handoff", "history"]),
         }
-        if self.profile == "production" { roles.push("operations"); }
-        if self.profile == "scientific" { roles.push("scientific_status"); }
-        Ok(roles)
+        if matches!(self.profile, Profile::Production) { roles.push("operations"); }
+        if matches!(self.profile, Profile::Scientific) { roles.push("scientific_status"); }
+        roles
     }
     fn validate(&self) -> Result<()> {
         if self.schema_version != 1 || (self.repository.trim().is_empty() || self.repository == "replace-with-project-id") { return Err("unsupported schema or missing repository identity".into()); }
-        if self.register == self.manifest || self.register == CONFIG || self.manifest == CONFIG {
+        if within(&self.register,&self.manifest) || within(&self.manifest,&self.register) || within(&self.register,CONFIG) || within(&self.manifest,CONFIG) {
             return Err("generated paths must be distinct from one another and config".into());
         }
         for p in [&self.register, &self.manifest].into_iter().chain(self.document_roots.iter()).chain(self.exclude_document_roots.iter()).chain(self.roles.values()).chain(self.extra_required.iter()).chain(self.link_exclusions.iter()) {
@@ -181,7 +208,7 @@ impl Config {
             self.document_extensions.iter().any(|e| e.is_empty() || !e.bytes().all(|b| b.is_ascii_alphanumeric())) {
             return Err("document roots and alphanumeric extensions required".into());
         }
-        for role in self.required_roles()? {
+        for role in self.required_roles() {
             if !self.roles.contains_key(role) { return Err(format!("profile requires role: {role}")); }
         }
         if self.roles.values().chain(self.extra_required.iter()).any(|p| p == &self.register || p == &self.manifest) {
@@ -299,9 +326,23 @@ fn safe_output(root: &Path, relative: &str) -> Result<PathBuf> {
     }
     Ok(path)
 }
-fn write_output(path: &Path, bytes: &[u8]) -> Result<()> {
-    fs::create_dir_all(path.parent().ok_or("missing parent")?).map_err(|e| e.to_string())?;
-    fs::write(path,bytes).map_err(|e| e.to_string())
+fn write_output(path: &Path, bytes: &[u8], existing: bool) -> Result<()> {
+    let parent = path.parent().ok_or("missing parent")?;
+    fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    // Same-directory temporary file: no truncation of the existing target on write failure.
+    let mut file = tempfile::NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
+    file.write_all(bytes).map_err(|e| e.to_string())?;
+    if existing {
+        file.as_file().set_permissions(fs::metadata(path).map_err(|e| e.to_string())?.permissions()).map_err(|e| e.to_string())?;
+    }
+    file.as_file().sync_all().map_err(|e| e.to_string())?;
+    if existing { file.persist(path).map_err(|e| e.to_string())?; }
+    else { file.persist_noclobber(path).map_err(|e| e.to_string())?; }
+    Ok(())
+}
+fn owned_output(path: &str, config: &Config, content: &[u8]) -> bool {
+    if path == config.register { content.starts_with(b"# Document register\n\nGenerated from Git.") }
+    else { content.starts_with(b"# docs-guard Git inventory v1; manifest itself excluded\n") }
 }
 
 fn evaluate(root: &Path, commit: Option<&str>, generate: bool, plan: bool) -> Result<Report> {
@@ -352,6 +393,9 @@ fn evaluate(root: &Path, commit: Option<&str>, generate: bool, plan: bool) -> Re
     if generate || plan {
         let targets = [(&config.register,&reg),(&config.manifest,&man)];
         for (p, bytes) in &targets {
+            if original.get(*p).is_some_and(Entry::regular) && !owned_output(p,&config,&blob(root,&original,p)?) {
+                findings.push(finding("OUTPUT_UNMANAGED",p,"tracked output is not owned by docs-guard; migrate explicitly"));
+            }
             let target = safe_output(root,p)?;
             if !target.exists() { changed_outputs.push((*p).clone()); }
             if target.exists() {
@@ -366,12 +410,16 @@ fn evaluate(root: &Path, commit: Option<&str>, generate: bool, plan: bool) -> Re
         if inventory(root,commit)? != original { return Err("Git index changed during evaluation; retry on a stable snapshot".into()); }
         if generate && findings.is_empty() {
             for (p,bytes) in targets {
-                if changed_outputs.contains(p) { write_output(&safe_output(root,p)?,bytes)?; }
+                if changed_outputs.contains(p) {
+                    let path = safe_output(root,p)?;
+                    write_output(&path,bytes,path.exists())?;
+                }
             }
         }
     }
     if !generate && !plan && inventory(root,commit)? != original { return Err("Git snapshot changed during check".into()); }
     Ok(Report {
+        schema_version: 1,
         version: env!("CARGO_PKG_VERSION"),
         snapshot: commit.map(str::to_owned).unwrap_or_else(|| format!("INDEX:{}", index_identity.unwrap_or_default())),
         repository: config.repository,
@@ -382,7 +430,14 @@ fn evaluate(root: &Path, commit: Option<&str>, generate: bool, plan: bool) -> Re
         changed_outputs,
     })
 }
-fn run(cli: &Cli) -> Result<i32> {
+fn emit(json: bool, value: &serde_json::Value, human: &str) -> Result<()> {
+    let mut stdout = std::io::stdout().lock();
+    if json { serde_json::to_writer_pretty(&mut stdout,value).map_err(|e| e.to_string())?; }
+    else { stdout.write_all(human.as_bytes()).map_err(|e| e.to_string())?; }
+    stdout.write_all(b"\n").map_err(|e| e.to_string())?;
+    stdout.flush().map_err(|e| e.to_string())
+}
+fn run(cli: &Cli) -> Result<u8> {
     let root = repo_root(&cli.root)?;
     let report = match &cli.command {
         Action::Init => {
@@ -390,14 +445,12 @@ fn run(cli: &Cli) -> Result<i32> {
             if path.exists() { return Err("configuration already exists; refusing overwrite".into()); }
             let mut file = fs::OpenOptions::new().write(true).create_new(true).open(path).map_err(|e| e.to_string())?;
             file.write_all(include_bytes!("../examples/docs-guard.toml")).map_err(|e| e.to_string())?;
-            if cli.json { println!("{}",serde_json::json!({"outcome":"CONFIG_CREATED_NOT_CHECKED","path":CONFIG})); }
-            else { println!("Created {CONFIG}; adapt identity and roles, create missing curated docs, stage inputs."); }
+            if emit(cli.json,&serde_json::json!({"schema_version":1,"version":env!("CARGO_PKG_VERSION"),"outcome":"CONFIG_CREATED_NOT_CHECKED","path":CONFIG}),&format!("Created {CONFIG}; adapt identity and roles, create missing curated docs, stage inputs.")).is_err() { return Ok(2); }
             return Ok(0);
         },
         Action::Doctor => {
             let version = utf8(git(&root,&["--version"],None)?)?;
-            if cli.json { println!("{}",serde_json::json!({"outcome":"DIAGNOSTIC","git":version.trim(),"root":root,"version":env!("CARGO_PKG_VERSION")})); }
-            else { println!("docs-guard {} | {} | {}",env!("CARGO_PKG_VERSION"),version.trim(),root.display()); }
+            if emit(cli.json,&serde_json::json!({"schema_version":1,"outcome":"DIAGNOSTIC","git":version.trim(),"root":root,"version":env!("CARGO_PKG_VERSION")}),&format!("docs-guard {} | {} | {}",env!("CARGO_PKG_VERSION"),version.trim(),root.display())).is_err() { return Ok(2); }
             return Ok(0);
         },
         Action::Generate => evaluate(&root,None,true,false)?,
@@ -410,30 +463,50 @@ fn run(cli: &Cli) -> Result<i32> {
             evaluate(&root,sha.as_deref(),false,false)?
         }
     };
-    if cli.json { println!("{}",serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?); }
-    else {
-        println!("DOCS_GUARD_{} snapshot={} tracked={} documents={}",report.outcome,report.snapshot,report.tracked_files,report.documents);
-        for f in &report.findings { println!("{} {}: {}",f.code,f.path,f.detail); }
-        for p in &report.changed_outputs { println!("OUTPUT_CHANGE {p}"); }
+    if cli.json {
+        if emit(true,&serde_json::to_value(&report).map_err(|e| e.to_string())?,"").is_err() { return Ok(2); }
+    } else {
+        let mut out = format!("DOCS_GUARD_{} snapshot={} tracked={} documents={}",report.outcome,report.snapshot,report.tracked_files,report.documents);
+        for p in &report.changed_outputs { out.push_str(&format!("\nOUTPUT_CHANGE {p}")); }
+        emit(false,&serde_json::Value::Null,&out)?;
+        let mut stderr = std::io::stderr().lock();
+        for f in &report.findings { writeln!(stderr,"{} {}: {}",f.code,f.path,f.detail).map_err(|e| e.to_string())?; }
+        stderr.flush().map_err(|e| e.to_string())?;
     }
     Ok(if report.findings.is_empty() {0} else {1})
 }
-fn main() {
-    let cli = Cli::parse();
+fn main() -> ExitCode {
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(error) => {
+            let code = if error.use_stderr() { 2 } else { 0 };
+            return ExitCode::from(if error.print().is_ok() { code } else { 2 });
+        }
+    };
     let code = match run(&cli) {
         Ok(code) => code,
         Err(e) => {
-            if cli.json { println!("{}",serde_json::json!({"outcome":"ERROR","detail":e})); }
-            else { eprintln!("DOCS_GUARD_ERROR: {e}"); }
+            // On an output-stream failure, do not append a second/partial JSON document.
+            // Runtime errors before rendering are still machine-readable.
+            if cli.json {
+                let _ = emit(true,&serde_json::json!({"schema_version":1,"version":env!("CARGO_PKG_VERSION"),"outcome":"ERROR","code":"EXECUTION_ERROR","detail":e}),"");
+            } else { let _ = writeln!(std::io::stderr().lock(),"DOCS_GUARD_ERROR: {e}"); }
             2
         }
     };
-    std::process::exit(code);
+    ExitCode::from(code)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::CommandFactory;
+    #[test]
+    fn parser_contract_is_valid() {
+        Cli::command().debug_assert();
+        assert!(Cli::try_parse_from(["docs-guard","check","--index","--commit","HEAD"]).is_err());
+        assert!(Cli::try_parse_from(["docs-guard","check","--unknown"]).is_err());
+    }
     #[test]
     fn relative_paths() {
         assert_eq!(relative("docs/inventory/register.md","README.md"),"../../README.md");

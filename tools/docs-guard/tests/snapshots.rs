@@ -1,12 +1,9 @@
-use std::{fs, path::{Path,PathBuf}, process::{Command,Output}, sync::atomic::{AtomicU64,Ordering}};
-static NEXT: AtomicU64 = AtomicU64::new(0);
-struct Repo(PathBuf);
-impl Drop for Repo { fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); } }
+use std::{fs, path::{Path,PathBuf}, process::{Command,Output}};
+struct Repo { root: PathBuf, _temp: tempfile::TempDir }
 impl Repo {
     fn new() -> Self {
-        let root = std::env::temp_dir().join(format!("docs-guard-{}-{}",std::process::id(),NEXT.fetch_add(1,Ordering::Relaxed)));
-        fs::create_dir(&root).unwrap();
-        let repo = Self(root);
+        let temp = tempfile::tempdir().unwrap();
+        let repo = Self { root: temp.path().to_path_buf(), _temp: temp };
         repo.git(&["init","-q"]);
         repo.git(&["config","user.name","Test"]);
         repo.git(&["config","user.email","test@example.invalid"]);
@@ -14,9 +11,9 @@ impl Repo {
         repo.git(&["config","commit.gpgsign","false"]);
         repo
     }
-    fn git(&self,args:&[&str]) { let out=Command::new("git").current_dir(&self.0).args(args).output().unwrap(); assert!(out.status.success(),"{:?}: {}",args,String::from_utf8_lossy(&out.stderr)); }
-    fn put(&self,path:&str,text:&str) { let p=self.0.join(path); fs::create_dir_all(p.parent().unwrap()).unwrap(); fs::write(p,text).unwrap(); }
-    fn run(&self,args:&[&str]) -> Output { Command::new(env!("CARGO_BIN_EXE_docs-guard")).arg("--root").arg(&self.0).arg("--json").args(args).output().unwrap() }
+    fn git(&self,args:&[&str]) { let out=Command::new("git").current_dir(&self.root).args(args).output().unwrap(); assert!(out.status.success(),"{:?}: {}",args,String::from_utf8_lossy(&out.stderr)); }
+    fn put(&self,path:&str,text:&str) { let p=self.root.join(path); fs::create_dir_all(p.parent().unwrap()).unwrap(); fs::write(p,text).unwrap(); }
+    fn run(&self,args:&[&str]) -> Output { Command::new(env!("CARGO_BIN_EXE_docs-guard")).arg("--root").arg(&self.root).arg("--json").args(args).output().unwrap() }
     fn expect(&self,args:&[&str],code:i32) -> serde_json::Value {
         let out=self.run(args);
         assert_eq!(out.status.code(),Some(code),"{:?}: {} {}",args,String::from_utf8_lossy(&out.stdout),String::from_utf8_lossy(&out.stderr));
@@ -43,12 +40,12 @@ fn read(root:&Path,p:&str)->Vec<u8> {fs::read(root.join(p)).unwrap()}
 fn generation_snapshot_and_negative_cases() {
     let repo=Repo::new(); repo.fixture();
     assert_eq!(repo.expect(&["plan"],0)["outcome"],"PLAN_READY");
-    assert!(!repo.0.join("docs/inventory").exists());
+    assert!(!repo.root.join("docs/inventory").exists());
     repo.expect(&["check","--index"],1);
     repo.generated();
-    let before=read(&repo.0,"docs/inventory/FILE_MANIFEST.tsv");
+    let before=read(&repo.root,"docs/inventory/FILE_MANIFEST.tsv");
     assert_eq!(repo.expect(&["generate"],0)["changed_outputs"],serde_json::json!([]));
-    assert_eq!(before,read(&repo.0,"docs/inventory/FILE_MANIFEST.tsv"));
+    assert_eq!(before,read(&repo.root,"docs/inventory/FILE_MANIFEST.tsv"));
     repo.git(&["commit","-qm","fixture"]);
     repo.expect(&["check"],0);
     repo.put("README.md","[missing](untracked.md)\n");
@@ -58,7 +55,7 @@ fn generation_snapshot_and_negative_cases() {
     let bad=repo.expect(&["check","--index"],1);
     assert!(bad["findings"].as_array().unwrap().iter().any(|f|f["code"]=="BROKEN_LINK"));
     repo.expect(&["check"],0);
-    assert_eq!(before,read(&repo.0,"docs/inventory/FILE_MANIFEST.tsv"));
+    assert_eq!(before,read(&repo.root,"docs/inventory/FILE_MANIFEST.tsv"));
     repo.put("README.md","[index](docs/INDEX.md)\n");
     repo.git(&["add","README.md"]);
     repo.put("src/main.ts","export const a = 2;\n");
@@ -78,5 +75,49 @@ fn refuses_overwrite_and_unstaged_required() {
     repo.put("docs/inventory/FILE_MANIFEST.tsv","manual edit\n");
     let bad=repo.expect(&["generate"],1);
     assert!(bad["findings"].as_array().unwrap().iter().any(|f|f["code"]=="OUTPUT_DIRTY"));
-    assert_eq!(read(&repo.0,"docs/inventory/FILE_MANIFEST.tsv"),b"manual edit\n");
+    assert_eq!(read(&repo.root,"docs/inventory/FILE_MANIFEST.tsv"),b"manual edit\n");
+}
+
+#[test]
+fn cli_help_errors_and_json_contract() {
+    let bin = env!("CARGO_BIN_EXE_docs-guard");
+    for flag in ["--help","--version"] {
+        let out=Command::new(bin).arg(flag).output().unwrap();
+        assert!(out.status.success());
+        assert!(!out.stdout.is_empty());
+        assert!(out.stderr.is_empty());
+    }
+    let out=Command::new(bin).args(["--json","check","--index","--commit","HEAD"]).output().unwrap();
+    assert_eq!(out.status.code(),Some(2));
+    assert!(out.stdout.is_empty());
+    assert!(!out.stderr.is_empty());
+    let repo=Repo::new();
+    assert_eq!(repo.expect(&["doctor"],0)["schema_version"],1);
+    repo.fixture();
+    let report=repo.expect(&["check","--index"],1);
+    assert_eq!(report["schema_version"],1);
+    assert_eq!(report["outcome"],"FAIL");
+    let out=Command::new(bin).arg("--root").arg(&repo.root).args(["check","--index"]).output().unwrap();
+    assert_eq!(out.status.code(),Some(1));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("MISSING_GENERATED"));
+}
+#[test]
+fn refuses_to_overwrite_unmanaged_tracked_output() {
+    let repo=Repo::new(); repo.fixture();
+    repo.put("docs/inventory/DOCUMENT_REGISTER.md","User-authored document\n");
+    repo.git(&["add","docs/inventory/DOCUMENT_REGISTER.md"]);
+    let report=repo.expect(&["generate"],1);
+    assert!(report["findings"].as_array().unwrap().iter().any(|f|f["code"]=="OUTPUT_UNMANAGED"));
+    assert_eq!(read(&repo.root,"docs/inventory/DOCUMENT_REGISTER.md"),b"User-authored document\n");
+    assert!(!repo.root.join("docs/inventory/FILE_MANIFEST.tsv").exists());
+}
+#[test]
+fn rejects_git_scope_overrides() {
+    let repo=Repo::new(); repo.fixture();
+    let out=Command::new(env!("CARGO_BIN_EXE_docs-guard")).arg("--root").arg(&repo.root)
+        .env("GIT_INDEX_FILE",repo.root.join("wrong-index")).args(["--json","check","--index"]).output().unwrap();
+    assert_eq!(out.status.code(),Some(2));
+    let report:serde_json::Value=serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(report["code"],"EXECUTION_ERROR");
+    assert!(report["detail"].as_str().unwrap().contains("GIT_INDEX_FILE"));
 }
