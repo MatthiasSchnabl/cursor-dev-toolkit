@@ -35,13 +35,31 @@ For an approved in-place cutover, review the two legacy generated files, commit 
 
 Generation checks staged Git attributes for filters, working-tree encoding, ident expansion and CRLF output rules before writing. Use LF for generated files. This is a preflight, not proof that the entire live staging environment matches the staged attributes. Links to symlinks and submodule roots are explicitly unsupported rather than certified by their presence.
 
+## Change-dependent documentation (opt-in)
+
+Define named rules in the project configuration. A rule watches literal path or directory prefixes (no globs) and requires all listed curated documents to change, or a change to one explicit review document. The review document must record a concrete justification; the tool only verifies that it changed, never that the justification is sufficient.
+
+Replace the example's empty `change_rules = []` with TOML array-of-table entries (place them after the roles table):
+
+```toml
+[[change_rules]]
+id = "architecture-change"
+watch = ["src/api"]
+require = ["docs/ARCHITECTURE.md", "docs/PROJECT_STATUS.md"]
+review_document = "docs/CHANGE_REVIEW.md"
+```
+
+Declare all target documents as role paths or required/optional curated documents. The watch scope must not include the target or generated artifacts/config. For QA use `check --commit <candidate> --base <trusted-ancestor>`; for staged work use `check --index --base HEAD`. A trusted runner must always supply the externally selected base, including when the candidate removes all rules. Current and prior rules are checked when the policy changes, preventing a same-change bypass within that comparison. Policy changes themselves still require explicit review; a caller-chosen base is not authorization or branch protection. A configured rule without a base is a configuration error. Generation and plan do not certify change rules. Bootstrap the policy on an existing baseline before enforcing it on subsequent changes. Initial uncommitted repositories with enabled rules need a baseline commit first.
+
+Change detection compares Git entries (mode and object ID); additions, deletions and renames are represented as changed paths. No semantic inference or automatic approval. JSON reports identify the comparison base and whether change rules were checked.
+
 ## Remaining acceptance gates
 
 1. Resolve/pin dependencies and commit Cargo.lock; run fmt, check, clippy, tests and release build on authorized QA infrastructure.
 2. Differential comparison against existing reference behavior using synthetic fixtures; privately run real consumer migration tests. Preserve domain-specific guards separately.
 3. Integration tests: clean HEAD vs staged/unstaged changes, generation convergence, missing links/files, invalid configuration, symlink/submodule, path encoding, SHA-256 repositories, filters/CRLF, Windows/Linux; document exact job evidence.
 4. Verify per-file atomic replacement, partial-failure recovery, Git environment controls and filters; establish supported cross-platform path policy and strict snapshot identity evidence for index mode.
-5. Verify changed-output reporting in plan; optional anchors/advanced link syntax and change-trigger rules need design/test. Add generic enforcement for documentation-change review only where justified.
+5. Verify changed-output reporting, opt-in change rules, trusted-base enforcement and review-document alternative. Anchor/HTML and advanced non-Markdown links remain outside v1.
 6. Validate the explicit offline installer and activate only approved pins. Integrate existing local/cloud bootstrap only after release acceptance; no per-repository toolkit clone.
 7. Extend existing external QA runner with allowlisted standalone check, no weakening or replacement of existing gates before proven parity. No GitHub Actions, no changes to runner/Contabo during source-draft phase.
 8. Pilot on a reference repository and a structurally different non-Rust repository. Keep previous guard until migration acceptance. Required status checks and protected-branch enforcement are separate from local agent rules.

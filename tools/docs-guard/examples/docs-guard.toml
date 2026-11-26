@@ -10,6 +10,7 @@ exclude_document_roots = []
 extra_required = []
 optional_documents = []
 link_exclusions = []
+change_rules = []
 
 [roles]
 scope = "README.md"

@@ -188,3 +188,42 @@ fn refuses_clean_filter_and_required_exclusion() {
     repo.git(&["add","docs-guard.toml"]);
     repo.expect(&["check","--index"],2);
 }
+
+#[test]
+fn change_rules_use_trusted_base_and_keep_old_policy() {
+    let repo=Repo::new(); repo.fixture();
+    repo.generated();
+    repo.git(&["commit","-qm","baseline"]);
+    // Introduce rule in a policy-only commit first.
+    let cfg=include_str!("../examples/docs-guard.toml").replace("replace-with-project-id","fixture")
+        + "\n[[change_rules]]\nid = \"source-status\"\nwatch = [\"src\"]\nrequire = [\"docs/PROJECT_STATUS.md\"]\nreview_document = \"AGENTS.md\"\n";
+    // The example declares an empty array; TOML cannot redeclare it as array of tables.
+    let cfg=cfg.replace("change_rules = []\n","");
+    repo.put("docs-guard.toml",&cfg);
+    repo.git(&["add","docs-guard.toml"]);
+    repo.expect(&["generate"],0);
+    repo.git(&["add","docs/inventory"]);
+    repo.expect(&["check","--index","--base","HEAD"],0);
+    repo.git(&["commit","-qm","policy"]);
+    repo.put("src/main.ts","export const a = 3;\n");
+    repo.git(&["add","src/main.ts"]);
+    repo.expect(&["generate"],0);
+    repo.git(&["add","docs/inventory"]);
+    repo.expect(&["check","--index"],2);
+    let report=repo.expect(&["check","--index","--base","HEAD"],1);
+    assert_eq!(report["change_rules_checked"],true);
+    assert!(report["findings"].as_array().unwrap().iter().any(|f|f["code"]=="DOCUMENT_CHANGE_REQUIRED"));
+    // Removing the rule in the same change does not bypass the trusted base rule.
+    repo.put("docs-guard.toml",&include_str!("../examples/docs-guard.toml").replace("replace-with-project-id","fixture"));
+    repo.git(&["add","docs-guard.toml"]);
+    repo.expect(&["generate"],0);
+    repo.git(&["add","docs/inventory"]);
+    repo.expect(&["check","--index","--base","HEAD"],1);
+    repo.put("docs/PROJECT_STATUS.md","Source change reviewed.\n");
+    repo.git(&["add","docs/PROJECT_STATUS.md"]);
+    repo.expect(&["generate"],0);
+    repo.git(&["add","docs/inventory"]);
+    repo.expect(&["check","--index","--base","HEAD"],0);
+    repo.git(&["commit","-qm","source and documentation"]);
+    repo.expect(&["check","--base","HEAD~1"],0);
+}

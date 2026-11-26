@@ -6,8 +6,11 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fs, io::Write,
     path::{Component, Path, PathBuf},
-    process::{Command, ExitCode, Stdio},
+    process::ExitCode,
 };
+
+mod git_process;
+use git_process::git;
 
 type Result<T> = std::result::Result<T, String>;
 const CONFIG: &str = "docs-guard.toml";
@@ -52,6 +55,9 @@ enum Action {
         /// Resolve and check this commit or ref.
         #[arg(long)]
         commit: Option<String>,
+        /// Trusted comparison base (required for configured change rules).
+        #[arg(long)]
+        base: Option<String>,
     },
     /// Report documentation findings for the selected snapshot.
     Status {
@@ -59,6 +65,8 @@ enum Action {
         index: bool,
         #[arg(long)]
         commit: Option<String>,
+        #[arg(long)]
+        base: Option<String>,
     },
     /// Report the installed CLI and Git environment.
     Doctor,
@@ -88,6 +96,16 @@ struct Config {
     optional_documents: Vec<String>,
     #[serde(default)]
     link_exclusions: Vec<String>,
+    #[serde(default)]
+    change_rules: Vec<ChangeRule>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ChangeRule {
+    id: String,
+    watch: Vec<String>,
+    require: Vec<String>,
+    review_document: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -112,6 +130,8 @@ struct Report {
     schema_version: u32,
     version: &'static str,
     snapshot: String,
+    comparison_base: Option<String>,
+    change_rules_checked: bool,
     repository: String,
     tracked_files: usize,
     documents: usize,
@@ -124,34 +144,6 @@ fn finding(code: &'static str, path: &str, detail: impl Into<String>) -> Finding
     Finding { code, path: path.into(), detail: detail.into() }
 }
 
-fn git(root: &Path, args: &[&str], input: Option<&[u8]>) -> Result<Vec<u8>> {
-    let mut command = Command::new("git");
-    // An alternate Git index/worktree changes the meaning of the checked snapshot.
-    // Reject rather than silently checking a different repository or index.
-    for key in ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE"] {
-        if std::env::var_os(key).is_some() {
-            return Err(format!("unsupported Git environment override: {key}"));
-        }
-    }
-    command.current_dir(root)
-        .env("GIT_NO_REPLACE_OBJECTS","1")
-        .env("GIT_NO_LAZY_FETCH","1")
-        .env("GIT_OPTIONAL_LOCKS","0")
-        .env("GIT_TERMINAL_PROMPT","0")
-        .env("GIT_ALLOW_PROTOCOL","")
-        .args(args).stdout(Stdio::piped()).stderr(Stdio::piped());
-    command.stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() });
-    let mut child = command.spawn().map_err(|e| format!("cannot start git: {e}"))?;
-    if let Some(bytes) = input {
-        let mut stdin = child.stdin.take().ok_or("missing git stdin")?;
-        stdin.write_all(bytes).map_err(|e| e.to_string())?;
-    }
-    let out = child.wait_with_output().map_err(|e| e.to_string())?;
-    if !out.status.success() {
-        return Err(format!("git {}: {}", args.join(" "), String::from_utf8_lossy(&out.stderr).trim()));
-    }
-    Ok(out.stdout)
-}
 fn utf8(bytes: Vec<u8>) -> Result<String> {
     String::from_utf8(bytes).map_err(|e| format!("non-UTF-8 input: {e}"))
 }
@@ -234,6 +226,26 @@ impl Config {
         }
         if self.roles.values().chain(self.extra_required.iter()).chain(self.optional_documents.iter()).any(|p| p == &self.register || p == &self.manifest || p == CONFIG) {
             return Err("generated files cannot fulfill curated documentation requirements".into());
+        }
+        let mut ids = BTreeSet::new();
+        for rule in &self.change_rules {
+            if rule.id.trim().is_empty() || !ids.insert(&rule.id) || rule.watch.is_empty() || rule.require.is_empty() {
+                return Err("change rules require a unique nonempty ID, watch and require paths".into());
+            }
+            for p in &rule.watch {
+                validate_path(p)?;
+                if within(&self.register,p) || within(&self.manifest,p) || within(CONFIG,p) {
+                    return Err(format!("change rule {} watches generated files or configuration",rule.id));
+                }
+            }
+            for p in rule.require.iter().chain(rule.review_document.iter()) {
+                validate_path(p)?;
+                if p == &self.register || p == &self.manifest || p == CONFIG ||
+                    rule.watch.iter().any(|prefix| within(p,prefix)) ||
+                    !self.roles.values().chain(self.extra_required.iter()).chain(self.optional_documents.iter()).any(|d| d == p) {
+                    return Err(format!("change rule {} targets must be declared curated documents outside watched paths",rule.id));
+                }
+            }
         }
         Ok(())
     }
@@ -387,7 +399,30 @@ fn check_output_attributes(root: &Path, path: &str) -> Result<()> {
     }
     Ok(())
 }
-fn evaluate(root: &Path, commit: Option<&str>, generate: bool, plan: bool, adoption: Adoption<'_>) -> Result<Report> {
+fn resolve_commit(root: &Path, reference: &str) -> Result<String> {
+    let spec = format!("{reference}^{{commit}}");
+    Ok(utf8(git(root,&["rev-parse","--verify","--end-of-options",&spec],None)?)?.trim().to_owned())
+}
+fn load_config(root: &Path, inv: &Inventory) -> Result<Config> {
+    let config: Config = toml::from_str(&utf8(blob(root,inv,CONFIG)?)?).map_err(|e| format!("invalid config: {e}"))?;
+    config.validate()?;
+    Ok(config)
+}
+fn audit_change_rules(current: &Inventory, base: &Inventory, config: &Config, findings: &mut Vec<Finding>) {
+    let changed: BTreeSet<&str> = current.keys().chain(base.keys())
+        .filter(|p| current.get(*p) != base.get(*p)).map(String::as_str).collect();
+    let updated = |p: &str| changed.contains(p) && current.get(p).is_some_and(Entry::regular);
+    for rule in &config.change_rules {
+        if !changed.iter().any(|path| rule.watch.iter().any(|prefix| within(path,prefix))) { continue; }
+        if rule.review_document.as_deref().is_some_and(updated) { continue; }
+        for p in &rule.require {
+            if !updated(p) {
+                findings.push(finding("DOCUMENT_CHANGE_REQUIRED",p,format!("rule {}: update this curated document or its configured review document",rule.id)));
+            }
+        }
+    }
+}
+fn evaluate(root: &Path, commit: Option<&str>, base: Option<&str>, generate: bool, plan: bool, adoption: Adoption<'_>) -> Result<Report> {
     let mut inv = inventory(root,commit)?;
     let original = inv.clone();
     let tracked_files = inv.len();
@@ -398,9 +433,23 @@ fn evaluate(root: &Path, commit: Option<&str>, generate: bool, plan: bool, adopt
         }
         Some(utf8(git(root,&["hash-object","--stdin"],Some(&bytes))?)?.trim().to_owned())
     } else { None };
-    let config: Config = toml::from_str(&utf8(blob(root,&inv,CONFIG)?)?).map_err(|e| format!("invalid config: {e}"))?;
-    config.validate()?;
+    let config = load_config(root,&inv)?;
     let mut findings = Vec::new();
+    if !generate && !plan && base.is_none() && !config.change_rules.is_empty() {
+        return Err("configured change rules require --base with a trusted comparison commit".into());
+    }
+    if let Some(base_sha) = base {
+        let target = match commit { Some(sha) => sha.to_owned(), None => resolve_commit(root,"HEAD")? };
+        git(root,&["merge-base","--is-ancestor",base_sha,&target],None)
+            .map_err(|e| format!("comparison base must be an ancestor of target HEAD: {e}"))?;
+        let previous = inventory(root,Some(base_sha))?;
+        audit_change_rules(&inv,&previous,&config,&mut findings);
+        // A changed or deleted rule cannot silently weaken the existing base policy.
+        if previous.contains_key(CONFIG) && previous.get(CONFIG) != inv.get(CONFIG) {
+            let old_config = load_config(root,&previous)?;
+            audit_change_rules(&inv,&previous,&old_config,&mut findings);
+        }
+    }
     let required: BTreeSet<_> = config.roles.values().chain(config.extra_required.iter()).collect();
     for p in required {
         if !inv.get(p).is_some_and(Entry::regular) {
@@ -479,10 +528,14 @@ fn evaluate(root: &Path, commit: Option<&str>, generate: bool, plan: bool, adopt
         }
     }
     if !generate && !plan && inventory(root,commit)? != original { return Err("Git snapshot changed during check".into()); }
+    findings.sort_by(|a,b| (a.code,&a.path,&a.detail).cmp(&(b.code,&b.path,&b.detail)));
+    findings.dedup_by(|a,b| a.code == b.code && a.path == b.path && a.detail == b.detail);
     Ok(Report {
         schema_version: 1,
         version: env!("CARGO_PKG_VERSION"),
         snapshot: commit.map(str::to_owned).unwrap_or_else(|| format!("INDEX:{}", index_identity.unwrap_or_default())),
+        comparison_base: base.map(str::to_owned),
+        change_rules_checked: base.is_some(),
         repository: config.repository,
         tracked_files,
         documents: docs.len(),
@@ -515,20 +568,19 @@ fn run(cli: &Cli) -> Result<u8> {
             if emit(cli.json,&serde_json::json!({"schema_version":1,"outcome":"DIAGNOSTIC","git":version.trim(),"root":root,"version":env!("CARGO_PKG_VERSION")}),&format!("docs-guard {} | {} | {}",env!("CARGO_PKG_VERSION"),version.trim(),root.display())).is_err() { return Ok(2); }
             return Ok(0);
         },
-        Action::Generate {adopt_register,adopt_manifest} => evaluate(&root,None,true,false,Adoption {register:adopt_register.as_deref(),manifest:adopt_manifest.as_deref()})?,
-        Action::Plan {adopt_register,adopt_manifest} => evaluate(&root,None,false,true,Adoption {register:adopt_register.as_deref(),manifest:adopt_manifest.as_deref()})?,
-        Action::Check {index,commit} | Action::Status {index,commit} => {
-            let sha = if *index { None } else {
-                let spec = format!("{}^{{commit}}",commit.as_deref().unwrap_or("HEAD"));
-                Some(utf8(git(&root,&["rev-parse","--verify","--end-of-options",&spec],None)?)?.trim().to_owned())
-            };
-            evaluate(&root,sha.as_deref(),false,false,Adoption::default())?
+        Action::Generate {adopt_register,adopt_manifest} => evaluate(&root,None,None,true,false,Adoption {register:adopt_register.as_deref(),manifest:adopt_manifest.as_deref()})?,
+        Action::Plan {adopt_register,adopt_manifest} => evaluate(&root,None,None,false,true,Adoption {register:adopt_register.as_deref(),manifest:adopt_manifest.as_deref()})?,
+        Action::Check {index,commit,base} | Action::Status {index,commit,base} => {
+            let sha = if *index { None } else { Some(resolve_commit(&root,commit.as_deref().unwrap_or("HEAD"))?) };
+            let comparison = base.as_deref().map(|r| resolve_commit(&root,r)).transpose()?;
+            evaluate(&root,sha.as_deref(),comparison.as_deref(),false,false,Adoption::default())?
         }
     };
     if cli.json {
         if emit(true,&serde_json::to_value(&report).map_err(|e| e.to_string())?,"").is_err() { return Ok(2); }
     } else {
         let mut out = format!("DOCS_GUARD_{} snapshot={} tracked={} documents={}",report.outcome,report.snapshot,report.tracked_files,report.documents);
+        if let Some(base) = &report.comparison_base { out.push_str(&format!("\nCOMPARISON_BASE {base}")); }
         for p in &report.changed_outputs { out.push_str(&format!("\nOUTPUT_CHANGE {p}")); }
         for p in &report.legacy_adoptions { out.push_str(&format!("\nLEGACY_ADOPTION {p}")); }
         emit(false,&serde_json::Value::Null,&out)?;
