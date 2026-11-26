@@ -91,3 +91,21 @@ Read AGENTS.md and canonical index/status/decisions/evidence/handoff first. Upda
 ## Hardening review
 
 See [hardening audit](documentation-guard-hardening-audit.md) for persisted findings and remediation status. Generated output paths use portable ASCII names; tracked case/prefix collisions, worktree aliases and nested repositories are refused. Both staged and live output attributes must agree. Before each replacement the index and previously observed bytes are checked again (not atomic against concurrent malicious writers). Configuration size is limited to 256 KiB and policy items to 2,048. Git stderr and TOML source excerpts are omitted from error reports. All new checks await real QA.
+
+## CLI error contract (schema 1, source draft)
+
+Exit codes remain unchanged: 0 successful command, 1 policy findings, 2 execution/usage failure. The error response for a successfully parsed command has `outcome=ERROR`, `schema_version`, `version`, stable `code`, `category`, `operation`, optional `path`, safe `detail` and actionable `recovery`. It additionally reports `git_exit_code`, `io_kind`, `cleanup_failed`, `written_outputs`, `write_attempted` and `partial_write_possible`. Null denotes unavailable context. Codes, not the detail prose, are the automation contract.
+
+- Configuration: CONFIG_MISSING, CONFIG_INVALID, CONFIG_EXISTS, COMPARISON_BASE.
+- Security: INVALID_PATH, OUTPUT_SCOPE, GIT_ENVIRONMENT, UNSUPPORTED_ATTRIBUTE.
+- Git: GIT_UNAVAILABLE, GIT_FAILED, GIT_TIMEOUT, GIT_PROTOCOL.
+- Snapshot: INVALID_SNAPSHOT, SNAPSHOT_CHANGED, OUTPUT_CHANGED.
+- Resource/input: RESOURCE_LIMIT, INVALID_ENCODING, INVALID_LINK (link audit converts these local path problems into policy findings where appropriate).
+- I/O: FILE_READ, FILE_WRITE, OUTPUT_STREAM.
+- Internal: SERIALIZATION, INTERNAL_ERROR.
+
+Internal error sources are retained through std::error::Error::source but never printed/serialized. Raw Git stderr, TOML excerpts and raw link destinations are not emitted. Repository paths and safe details are still internal project data; do not publish reports indiscriminately. Human errors use stderr; CLI syntax/help/version retain clap-native behavior. Output-stream failure returns 2 and attempts one stderr diagnostic, never a second JSON object. If both streams fail no diagnostic can be guaranteed.
+
+On partial generation failure, completed replacements and the attempted target are identified; do not stage until reviewed and recovered. New directory creation or a failed temporary-file operation can have side effects even before a completed replacement. This is explicit recovery metadata, not transactional rollback. The shell installer retains its separate shell exit/stderr contract; this JSON schema applies to the Rust executable.
+
+See [hardening audit](documentation-guard-hardening-audit.md) for evidence and remaining validation. No new dependency; all error-contract tests remain NOT_RUN.

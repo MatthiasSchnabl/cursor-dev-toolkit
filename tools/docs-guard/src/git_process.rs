@@ -80,7 +80,10 @@ pub(crate) fn git(root: &Path, args: &[&str], input: Option<&[u8]>) -> Result<Ve
         // Do not kill an already-reaped child. Cleanup failure is explicit.
         let cleanup_ok = match child.try_wait() {
             Ok(Some(_)) => true,
-            Ok(None) => child.kill().is_ok() && child.wait().is_ok(),
+            Ok(None) => match child.kill() {
+                Ok(()) => child.wait().is_ok(),
+                Err(_) => matches!(child.try_wait(),Ok(Some(_))),
+            },
             Err(_) => false,
         };
         if !cleanup_ok { error = error.cleanup_failed(); }
@@ -94,6 +97,6 @@ mod tests {
     #[test]
     fn bounded_output_rejects_instead_of_truncating() {
         assert_eq!(read_bounded(&b"abc"[..],3).unwrap(),b"abc");
-        assert!(read_bounded(&b"abcd"[..],3).is_err());
+        assert_eq!(read_bounded(&b"abcd"[..],3).unwrap_err().code,Code::ResourceLimit);
     }
 }

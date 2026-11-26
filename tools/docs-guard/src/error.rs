@@ -69,9 +69,15 @@ impl Code {
     }
 }
 
+// Keep Result's error variant small without adding an error-framework dependency.
 #[derive(Debug)]
 pub(crate) struct GuardError {
     pub(crate) code: Code,
+    pub(crate) git_exit_code: Option<i32>,
+    context: Box<Context>,
+}
+#[derive(Debug)]
+struct Context {
     detail: String,
     operation: Option<String>,
     path: Option<String>,
@@ -79,66 +85,76 @@ pub(crate) struct GuardError {
     written_outputs: Vec<String>,
     write_attempted: Option<String>,
     cleanup_failed: bool,
-    pub(crate) git_exit_code: Option<i32>,
+    io_kind: Option<String>,
 }
 
 impl GuardError {
     pub(crate) fn new(code: Code, detail: impl Into<String>) -> Self {
-        Self { code, detail: detail.into(), operation: None, path: None, source: None,
-            written_outputs: Vec::new(), write_attempted: None, cleanup_failed: false, git_exit_code: None }
+        Self { code, git_exit_code: None, context: Box::new(Context {
+            detail: detail.into(), operation: None, path: None, source: None,
+            written_outputs: Vec::new(), write_attempted: None, cleanup_failed: false, io_kind: None,
+        }) }
     }
     pub(crate) fn caused_by(mut self, source: impl Error + Send + Sync + 'static) -> Self {
-        self.source = Some(Box::new(source));
+        self.context.source = Some(Box::new(source));
         self
     }
     pub(crate) fn operation(mut self, operation: impl Into<String>) -> Self {
-        if self.operation.is_none() { self.operation = Some(operation.into()); }
+        if self.context.operation.is_none() { self.context.operation = Some(operation.into()); }
         self
     }
     pub(crate) fn at(mut self, path: impl Into<String>) -> Self {
-        if self.path.is_none() { self.path = Some(path.into()); }
+        if self.context.path.is_none() { self.context.path = Some(path.into()); }
         self
     }
     pub(crate) fn io(code: Code, operation: &str, path: Option<&Path>, source: io::Error) -> Self {
         let mut err = Self::new(code,format!("I/O failure ({:?})",source.kind())).operation(operation);
         if let Some(path) = path { err = err.at(path.to_string_lossy().into_owned()); }
+        err.context.io_kind = Some(format!("{:?}",source.kind()));
         err.caused_by(source)
     }
     pub(crate) fn writes(mut self, completed: &[String], attempted: Option<&str>) -> Self {
-        self.written_outputs = completed.to_vec();
-        self.write_attempted = attempted.map(str::to_owned);
+        self.context.written_outputs = completed.to_vec();
+        self.context.write_attempted = attempted.map(str::to_owned);
         self
     }
     pub(crate) fn git_exit(mut self, code: Option<i32>) -> Self { self.git_exit_code = code; self }
-    pub(crate) fn cleanup_failed(mut self) -> Self { self.cleanup_failed = true; self }
+    pub(crate) fn with_completed(mut self, completed: &[String]) -> Self {
+        self.context.written_outputs = completed.to_vec();
+        self
+    }
+    pub(crate) fn cleanup_failed(mut self) -> Self { self.context.cleanup_failed = true; self }
     pub(crate) fn public_json(&self) -> serde_json::Value {
         serde_json::json!({
             "schema_version": 1, "version": env!("CARGO_PKG_VERSION"), "outcome": "ERROR",
             "code": self.code.name(), "category": self.code.category(),
-            "operation": self.operation, "path": self.path,
-            "detail": self.detail, "recovery": self.code.recovery(),
-            "written_outputs": self.written_outputs, "write_attempted": self.write_attempted,
-            "partial_write_possible": !self.written_outputs.is_empty() || self.write_attempted.is_some(),
-            "cleanup_failed": self.cleanup_failed, "git_exit_code": self.git_exit_code,
+            "operation": self.context.operation, "path": self.context.path,
+            "detail": self.context.detail, "recovery": if !self.context.written_outputs.is_empty() || self.context.write_attempted.is_some() {
+                "Inspect completed and attempted outputs before staging; restore or regenerate from a stable snapshot."
+            } else { self.code.recovery() },
+            "written_outputs": self.context.written_outputs, "write_attempted": self.context.write_attempted,
+            "partial_write_possible": !self.context.written_outputs.is_empty() || self.context.write_attempted.is_some(),
+            "cleanup_failed": self.context.cleanup_failed, "git_exit_code": self.git_exit_code,
+            "io_kind": self.context.io_kind,
         })
     }
 }
 impl fmt::Display for GuardError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f,"{}: {}",self.code.name(),self.detail.escape_debug())?;
-        if let Some(op) = &self.operation { write!(f," [operation={}]",op.escape_debug())?; }
-        if let Some(path) = &self.path { write!(f," [path={}]",path.escape_debug())?; }
-        if !self.written_outputs.is_empty() || self.write_attempted.is_some() {
-            write!(f," [completed={:?}; attempted={:?}; inspect outputs before staging]",self.written_outputs,self.write_attempted)?;
+        write!(f,"{}: {}",self.code.name(),self.context.detail.escape_debug())?;
+        if let Some(op) = &self.context.operation { write!(f," [operation={}]",op.escape_debug())?; }
+        if let Some(path) = &self.context.path { write!(f," [path={}]",path.escape_debug())?; }
+        if !self.context.written_outputs.is_empty() || self.context.write_attempted.is_some() {
+            write!(f," [completed={:?}; attempted={:?}; inspect outputs before staging]",self.context.written_outputs,self.context.write_attempted)?;
         }
         if let Some(code) = self.git_exit_code { write!(f," [git_exit={code}]")?; }
-        if self.cleanup_failed { write!(f," [process cleanup failed; inspect runner]")?; }
+        if self.context.cleanup_failed { write!(f," [process cleanup failed; inspect runner]")?; }
         write!(f,"; {}",self.code.recovery())
     }
 }
 impl Error for GuardError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
-        self.source.as_deref().map(|e| e as &(dyn Error + 'static))
+        self.context.source.as_deref().map(|e| e as &(dyn Error + 'static))
     }
 }
 

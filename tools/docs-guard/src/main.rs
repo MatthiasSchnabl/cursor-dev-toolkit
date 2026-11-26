@@ -567,6 +567,19 @@ fn audit_change_rules(current: &Inventory, base: &Inventory, config: &Config, ca
         }
     }
 }
+// Record successful writes only after the operation returns success. The
+// callback keeps the recovery contract independently testable without races.
+fn write_sequence<'a>(
+    targets: impl IntoIterator<Item = (&'a String, &'a Vec<u8>)>,
+    mut apply: impl FnMut(&String,&Vec<u8>) -> Result<()>,
+) -> Result<()> {
+    let mut completed = Vec::new();
+    for (path,bytes) in targets {
+        apply(path,bytes).map_err(|e| e.with_completed(&completed))?;
+        completed.push(path.clone());
+    }
+    Ok(())
+}
 fn evaluate(root: &Path, commit: Option<&str>, base: Option<&str>, generate: bool, plan: bool, adoption: Adoption<'_>) -> Result<Report> {
     let mut inv = inventory(root,commit)?;
     let original = inv.clone();
@@ -676,23 +689,15 @@ fn evaluate(root: &Path, commit: Option<&str>, base: Option<&str>, generate: boo
         }
         if inventory(root,commit)? != original { return Err(GuardError::new(Code::SnapshotChanged,"Git index changed during evaluation; retry on a stable snapshot")); }
         if generate && findings.is_empty() {
-            let mut written = Vec::new();
-            for (p,bytes) in targets {
-                if changed_outputs.contains(p) {
-                    let preflight = (|| -> Result<PathBuf> {
-                        let path = safe_output(root,p)?;
-                        check_output_attributes(root,p)?;
-                        if inventory(root,commit)? != original { return Err(GuardError::new(Code::SnapshotChanged,"Git index changed before output replacement")); }
-                        let prior = observed.get(p).ok_or_else(|| GuardError::new(Code::Internal,"missing output observation"))?;
-                        let now = if path.exists() { Some(read_worktree_bounded(&path)?) } else { None };
-                        if &now != prior { return Err(GuardError::new(Code::OutputChanged,"output changed after preflight").at(p)); }
-                        Ok(path)
-                    })().map_err(|e| e.writes(&written,None))?;
-                    write_output(&preflight,bytes,observed.get(p).is_some_and(Option::is_some))
-                        .map_err(|e| e.writes(&written,Some(p)))?;
-                    written.push(p.clone());
-                }
-            }
+            write_sequence(targets.into_iter().filter(|(p,_)| changed_outputs.contains(p)), |p,bytes| {
+                let path = safe_output(root,p)?;
+                check_output_attributes(root,p)?;
+                if inventory(root,commit)? != original { return Err(GuardError::new(Code::SnapshotChanged,"Git index changed before output replacement")); }
+                let prior = observed.get(p).ok_or_else(|| GuardError::new(Code::Internal,"missing output observation"))?;
+                let now = if path.exists() { Some(read_worktree_bounded(&path)?) } else { None };
+                if &now != prior { return Err(GuardError::new(Code::OutputChanged,"output changed after preflight").at(p)); }
+                write_output(&path,bytes,prior.is_some()).map_err(|e| e.writes(&[],Some(p)))
+            })?;
         }
     }
     if !generate && !plan && inventory(root,commit)? != original { return Err(GuardError::new(Code::SnapshotChanged,"Git snapshot changed during check")); }
@@ -807,6 +812,21 @@ mod tests {
         assert!(resolve_link("README.md","../outside").is_err());
         assert!(resolve_link("README.md","%2e%2e/outside").is_err());
         assert_eq!(resolve_link("README.md","https://example.org").unwrap(),None);
+    }
+    #[test]
+    fn write_sequence_reports_first_success_and_second_failure() {
+        let a = "register.md".to_owned();
+        let b = "manifest.tsv".to_owned();
+        let bytes = vec![1_u8];
+        let error = write_sequence([(&a,&bytes),(&b,&bytes)], |path,_| {
+            if path == &b {
+                Err(GuardError::new(Code::FileWrite,"simulated second write failure").writes(&[],Some(path)))
+            } else { Ok(()) }
+        }).unwrap_err();
+        let report = error.public_json();
+        assert_eq!(report["written_outputs"],serde_json::json!(["register.md"]));
+        assert_eq!(report["write_attempted"],"manifest.tsv");
+        assert_eq!(report["partial_write_possible"],true);
     }
     #[test]
     fn unsafe_paths() {

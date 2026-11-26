@@ -40,3 +40,7 @@ Baseline: c8233f4e4c2609256099c9a6beb7015e9563b2c7. Scope limited to error bound
 | DG-E06 | MEDIUM | audit_links: raw link destinations in diagnostics can leak query strings or credentials. Do not echo raw destination; retain file, line and resolved safe path. |
 
 No scope expansion, no new dependencies, no runtime verification until authorized QA.
+
+### Error-handling remediation (source only)
+
+DG-E01–E06: typed error model with 23 named codes, safe public JSON, context/source preservation, Git exit and I/O kind metadata, process cleanup indicator, partial-write recovery, output-stream fallback and raw link destination redaction authored. Added deterministic write-sequence failure test and CLI classification/redaction cases. All findings remain OPEN until actual runtime verification, including missing Git, timeout/overflow, OS permissions, broken pipe and real partial-write recovery. No new crates. No runtime tests or Contabo work.

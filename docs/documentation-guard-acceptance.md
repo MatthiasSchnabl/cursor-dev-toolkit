@@ -49,3 +49,7 @@ For each run record source commit/tree, Cargo.lock identity, runner/job ID, comm
 ## Go/no-go
 
 Source draft may proceed to compilation and QA. Productive rollout, merge and replacement of existing guards: NO_GO until successful acceptance.
+
+## Error-contract acceptance extension
+
+See [error-handling audit](documentation-guard-hardening-audit.md). Validate each public category against real CLI failures, including invalid config/commit, unavailable Git, Git exit/timeout/overflow, denied filesystem writes, changed snapshot, second-write failure, broken stdout/stderr, cleanup failure and secret-canary absence. Confirm stable JSON and exit code 2 (policy findings remain exit 1), no duplicate JSON on stream failure, and accurate completed/attempted output recovery. Unit-level injected sequence failure is not a substitute for actual filesystem fault tests. All NOT_RUN.
