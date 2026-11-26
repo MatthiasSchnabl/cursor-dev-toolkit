@@ -51,7 +51,13 @@ review_document = "docs/CHANGE_REVIEW.md"
 
 Declare all target documents as role paths or required/optional curated documents. The watch scope must not include the target or generated artifacts/config. For QA use `check --commit <candidate> --base <trusted-ancestor>`; for staged work use `check --index --base HEAD`. A trusted runner must always supply the externally selected base, including when the candidate removes all rules. Current and prior rules are checked when the policy changes, preventing a same-change bypass within that comparison. Policy changes themselves still require explicit review; a caller-chosen base is not authorization or branch protection. A configured rule without a base is a configuration error. Generation and plan do not certify change rules. Bootstrap the policy on an existing baseline before enforcing it on subsequent changes. Initial uncommitted repositories with enabled rules need a baseline commit first.
 
-Change detection compares Git entries (mode and object ID); additions, deletions and renames are represented as changed paths. No semantic inference or automatic approval. JSON reports identify the comparison base and whether change rules were checked.
+Change detection compares Git entries (mode and object ID); additions, deletions and renames are represented as changed paths. A required document or review alternative must change its blob ID; mode-only changes cannot satisfy the obligation. For commit checks the comparison base must precede the candidate (not be the same commit). No semantic inference or automatic approval. JSON reports identify the comparison base and whether change rules were checked.
+
+## Runtime bounds and diagnostics
+
+Git subprocesses are direct argument-vector calls, with concurrent pipe draining, 20-second per-call deadline, cumulative 180-second Git invocation budget, 32 MiB stdout/stdin caps and 64 KiB stderr cap. The direct child is killed/reaped on failure; this is not a general process-tree sandbox. Markdown audit is limited to 4 MiB per file, generated/worktree output to 32 MiB per file, and findings to 10,000; exceeding bounds is an execution error, never a truncated PASS. These initial limits require calibration on real repositories. Use trusted Git on PATH and existing runner-level timeout/isolation as the outer boundary.
+
+Stale manifests report counts and up to five example paths each for added, removed and changed Git entries; rename appears as remove/add, not inferred identity. Broken links include line numbers. Generated-output path checks reject Windows reserved names, trailing dot/space, illegal characters and Windows reparse points; cross-platform alias and concurrent filesystem behavior still need tests. Unsupported input is explicit failure, not silently excluded.
 
 ## Remaining acceptance gates
 

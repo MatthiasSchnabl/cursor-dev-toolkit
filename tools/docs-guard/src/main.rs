@@ -4,7 +4,7 @@ use pulldown_cmark::{Event, Parser as Markdown, Tag};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs, io::Write,
+    fs, io::{Read, Write},
     path::{Component, Path, PathBuf},
     process::ExitCode,
 };
@@ -14,6 +14,9 @@ use git_process::git;
 
 type Result<T> = std::result::Result<T, String>;
 const CONFIG: &str = "docs-guard.toml";
+const MAX_MARKDOWN: usize = 4 * 1024 * 1024;
+const MAX_FINDINGS: usize = 10_000;
+const MAX_OUTPUT_FILE: usize = 32 * 1024 * 1024;
 
 #[derive(Parser)]
 #[command(version, about = "Offline Git-snapshot documentation governance")]
@@ -152,7 +155,7 @@ fn repo_root(path: &Path) -> Result<PathBuf> {
     fs::canonicalize(s.trim_end_matches(['\r', '\n'])).map_err(|e| e.to_string())
 }
 fn valid_path(path: &str) -> bool {
-    !path.is_empty() && !path.contains(['\\', '\r', '\n', '\t', '\0', ':'])
+    !path.is_empty() && !path.contains(['\\', ':']) && !path.chars().any(char::is_control)
         && path.split('/').all(|s| !s.is_empty() && s != "." && s != ".." && !s.eq_ignore_ascii_case(".git"))
         && Path::new(path).components().all(|c| matches!(c, Component::Normal(_)))
 }
@@ -178,6 +181,9 @@ fn inventory(root: &Path, commit: Option<&str>) -> Result<Inventory> {
         };
         if !matches!(oid.len(), 40 | 64) || !oid.bytes().all(|b| b.is_ascii_hexdigit()) || oid.bytes().all(|b| b == b'0') {
             return Err(format!("invalid object ID: {path}"));
+        }
+        if !matches!(fields[0],"100644" | "100755" | "120000" | "160000") {
+            return Err(format!("unsupported Git entry mode: {path}: {}",fields[0]));
         }
         if entries.insert(path.into(), Entry { mode: fields[0].into(), oid: oid.into() }).is_some() {
             return Err(format!("duplicate entry: {path}"));
@@ -300,6 +306,36 @@ fn manifest(config: &Config, inv: &Inventory) -> Vec<u8> {
     }
     out.into_bytes()
 }
+fn parse_manifest(bytes: &[u8]) -> Option<Inventory> {
+    let text = std::str::from_utf8(bytes).ok()?;
+    let mut lines = text.lines();
+    if lines.next()? != "# docs-guard Git inventory v1; manifest itself excluded" ||
+        lines.next()? != "# path\tmode\tobject_id" { return None; }
+    let mut entries = BTreeMap::new();
+    for line in lines {
+        let mut columns = line.split('\t');
+        let path = columns.next()?;
+        let mode = columns.next()?;
+        let oid = columns.next()?;
+        if columns.next().is_some() || !valid_path(path) ||
+            !matches!(mode,"100644" | "100755" | "120000" | "160000") ||
+            !matches!(oid.len(),40 | 64) || !oid.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return None;
+        }
+        if entries.insert(path.into(),Entry {mode:mode.into(),oid:oid.into()}).is_some() { return None; }
+    }
+    Some(entries)
+}
+fn manifest_drift(previous: &[u8], desired: &[u8]) -> String {
+    let (Some(old),Some(new)) = (parse_manifest(previous),parse_manifest(desired)) else {
+        return "manifest format differs; review migration or regenerate and stage output".into();
+    };
+    let added: Vec<_> = new.keys().filter(|p| !old.contains_key(*p)).collect();
+    let removed: Vec<_> = old.keys().filter(|p| !new.contains_key(*p)).collect();
+    let changed: Vec<_> = new.iter().filter(|(p,e)| old.get(*p).is_some_and(|prior| prior != *e)).map(|(p,_)| p).collect();
+    let sample = |paths: &[&String]| paths.iter().take(5).map(|p| p.as_str()).collect::<Vec<_>>().join(", ");
+    format!("added={} [{}]; removed={} [{}]; changed={} [{}]; regenerate and stage output",added.len(),sample(&added),removed.len(),sample(&removed),changed.len(),sample(&changed))
+}
 fn resolve_link(source: &str, target: &str) -> Result<Option<String>> {
     if target.is_empty() || target.starts_with('#') || target.starts_with("//") { return Ok(None); }
     let before_fragment = target.split(['#','?']).next().unwrap_or("");
@@ -311,7 +347,7 @@ fn resolve_link(source: &str, target: &str) -> Result<Option<String>> {
     let decoded = percent_decode_str(before_fragment).decode_utf8().map_err(|_| "invalid link encoding")?;
     if decoded.contains(['\\', '\0', ':']) { return Err("unsafe link path".into()); }
     let mut parts: Vec<&str> = if decoded.starts_with('/') { Vec::new() } else {
-        source.split('/').collect::<Vec<_>>()[..source.split('/').count()-1].to_vec()
+        source.rsplit_once('/').map(|(dir,_)| dir.split('/').collect()).unwrap_or_default()
     };
     for segment in decoded.split('/') {
         match segment {
@@ -328,29 +364,59 @@ fn resolve_link(source: &str, target: &str) -> Result<Option<String>> {
 fn audit_links(root: &Path, inv: &Inventory, config: &Config, docs: &[String], findings: &mut Vec<Finding>) -> Result<()> {
     for path in docs {
         if !path.to_ascii_lowercase().ends_with(".md") || config.link_exclusions.iter().any(|p| within(path,p)) { continue; }
-        let content = utf8(blob(root,inv,path)?)?;
+        let bytes = blob(root,inv,path)?;
+        if bytes.len() > MAX_MARKDOWN { return Err(format!("Markdown exceeds audit size limit: {path}")); }
+        let content = utf8(bytes)?;
+        let newlines: Vec<_> = content.match_indices('\n').map(|(i,_)| i).collect();
         for (event, range) in Markdown::new(&content).into_offset_iter() {
             if let Event::Start(Tag::Link {dest_url,..} | Tag::Image {dest_url,..}) = event {
+                let line = newlines.partition_point(|i| *i < range.start) + 1;
                 match resolve_link(path,&dest_url) {
                     Ok(None) => (),
                     Ok(Some(p)) if p.is_empty() || inv.get(&p).is_some_and(Entry::regular) || (!inv.contains_key(&p) && inv.keys().any(|key| within(key,&p))) => (),
-                    Ok(Some(p)) if inv.contains_key(&p) => findings.push(finding("UNSUPPORTED_LINK_TARGET",path,format!("byte {}: {dest_url} -> {p} (symlink or submodule)",range.start))),
-                    Ok(Some(p)) => findings.push(finding("BROKEN_LINK",path,format!("byte {}: {dest_url} -> {p}",range.start))),
-                    Err(e) => findings.push(finding("UNSAFE_LINK",path,format!("byte {}: {dest_url}: {e}",range.start))),
+                    Ok(Some(p)) if inv.contains_key(&p) => findings.push(finding("UNSUPPORTED_LINK_TARGET",path,format!("line {line}: {dest_url} -> {p} (symlink or submodule)"))),
+                    Ok(Some(p)) => findings.push(finding("BROKEN_LINK",path,format!("line {line}: {dest_url} -> {p}"))),
+                    Err(e) => findings.push(finding("UNSAFE_LINK",path,format!("line {line}: {dest_url}: {e}"))),
                 }
+                if findings.len() > MAX_FINDINGS { return Err("finding limit exceeded; narrow audit scope or resolve existing errors".into()); }
             }
         }
     }
     Ok(())
+}
+fn portable_output_component(part: &str) -> bool {
+    if part.ends_with([' ','.']) || part.contains(['<','>','"','|','?','*']) { return false; }
+    let stem = part.split('.').next().unwrap_or("").to_ascii_uppercase();
+    !matches!(stem.as_str(),"CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$") &&
+        !((stem.starts_with("COM") || stem.starts_with("LPT")) &&
+            stem.chars().count() == 4 && stem.chars().last().is_some_and(|c| matches!(c,'1'..='9' | '¹' | '²' | '³')))
+}
+fn redirected_file(metadata: &fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        // Includes junctions and other reparse points, not only symlinks.
+        metadata.file_type().is_symlink() || metadata.file_attributes() & 0x400 != 0
+    }
+    #[cfg(not(windows))]
+    { metadata.file_type().is_symlink() }
+}
+fn read_worktree_bounded(path: &Path) -> Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    fs::File::open(path).map_err(|e| e.to_string())?.take((MAX_OUTPUT_FILE + 1) as u64)
+        .read_to_end(&mut bytes).map_err(|e| e.to_string())?;
+    if bytes.len() > MAX_OUTPUT_FILE { return Err(format!("output exceeds size limit: {}",path.display())); }
+    Ok(bytes)
 }
 fn safe_output(root: &Path, relative: &str) -> Result<PathBuf> {
     validate_path(relative)?;
     let mut path = root.to_path_buf();
     let pieces: Vec<_> = relative.split('/').collect();
     for (i, part) in pieces.iter().enumerate() {
+        if !portable_output_component(part) { return Err(format!("nonportable output path: {relative}")); }
         path.push(part);
         match fs::symlink_metadata(&path) {
-            Ok(m) if m.file_type().is_symlink() => return Err(format!("symlink output refused: {}",path.display())),
+            Ok(m) if redirected_file(&m) => return Err(format!("redirected output path refused: {}",path.display())),
             Ok(m) if i+1 < pieces.len() && !m.is_dir() => return Err(format!("not a directory: {}",path.display())),
             Ok(m) if i+1 == pieces.len() && !m.is_file() => return Err(format!("not a regular file: {}",path.display())),
             Ok(_) => (),
@@ -411,7 +477,7 @@ fn load_config(root: &Path, inv: &Inventory) -> Result<Config> {
 fn audit_change_rules(current: &Inventory, base: &Inventory, config: &Config, findings: &mut Vec<Finding>) {
     let changed: BTreeSet<&str> = current.keys().chain(base.keys())
         .filter(|p| current.get(*p) != base.get(*p)).map(String::as_str).collect();
-    let updated = |p: &str| changed.contains(p) && current.get(p).is_some_and(Entry::regular);
+    let updated = |p: &str| current.get(p).is_some_and(|entry| entry.regular() && base.get(p).map(|old| &old.oid) != Some(&entry.oid));
     for rule in &config.change_rules {
         if !changed.iter().any(|path| rule.watch.iter().any(|prefix| within(path,prefix))) { continue; }
         if rule.review_document.as_deref().is_some_and(updated) { continue; }
@@ -440,6 +506,7 @@ fn evaluate(root: &Path, commit: Option<&str>, base: Option<&str>, generate: boo
     }
     if let Some(base_sha) = base {
         let target = match commit { Some(sha) => sha.to_owned(), None => resolve_commit(root,"HEAD")? };
+        if commit.is_some() && base_sha == target { return Err("comparison base must precede the candidate commit".into()); }
         git(root,&["merge-base","--is-ancestor",base_sha,&target],None)
             .map_err(|e| format!("comparison base must be an ancestor of target HEAD: {e}"))?;
         let previous = inventory(root,Some(base_sha))?;
@@ -467,11 +534,17 @@ fn evaluate(root: &Path, commit: Option<&str>, base: Option<&str>, generate: boo
     let mut expected = inv.clone();
     expected.insert(config.register.clone(),Entry {mode:"100644".into(),oid:reg_oid});
     let man = manifest(&config,&expected);
+    if reg.len() > MAX_OUTPUT_FILE || man.len() > MAX_OUTPUT_FILE { return Err("generated artifact exceeds size limit".into()); }
     for (p, bytes) in [(&config.register,&reg),(&config.manifest,&man)] {
         if !generate && !plan && !inv.get(p).is_some_and(Entry::regular) {
             findings.push(finding("MISSING_GENERATED",p,"run generate and stage output"));
-        } else if !generate && !plan && blob(root,&inv,p)? != *bytes {
-            findings.push(finding("STALE_GENERATED",p,"run generate and stage output"));
+        } else if !generate && !plan {
+            let actual = blob(root,&inv,p)?;
+            if actual != *bytes {
+                let detail = if p == &config.manifest { manifest_drift(&actual,bytes) }
+                    else { "document register differs; run generate and stage output".into() };
+                findings.push(finding("STALE_GENERATED",p,detail));
+            }
         }
     }
     // New generated outputs count as valid link targets in generation planning.
@@ -509,7 +582,7 @@ fn evaluate(root: &Path, commit: Option<&str>, base: Option<&str>, generate: boo
                 }
             }
             if target.exists() {
-                let existing = fs::read(&target).map_err(|e| e.to_string())?;
+                let existing = read_worktree_bounded(&target)?;
                 if existing != **bytes { changed_outputs.push((*p).clone()); }
                 // Refuse to overwrite edits or pre-existing untracked files.
                 if (requested.is_some() || existing != **bytes) && (!inv.get(*p).is_some_and(|e| e.regular() && !e.oid.is_empty()) || blob(root,&inv,p)? != existing) {
@@ -528,6 +601,7 @@ fn evaluate(root: &Path, commit: Option<&str>, base: Option<&str>, generate: boo
         }
     }
     if !generate && !plan && inventory(root,commit)? != original { return Err("Git snapshot changed during check".into()); }
+    if findings.len() > MAX_FINDINGS { return Err("finding limit exceeded".into()); }
     findings.sort_by(|a,b| (a.code,&a.path,&a.detail).cmp(&(b.code,&b.path,&b.detail)));
     findings.dedup_by(|a,b| a.code == b.code && a.path == b.path && a.detail == b.detail);
     Ok(Report {
@@ -558,8 +632,7 @@ fn run(cli: &Cli) -> Result<u8> {
         Action::Init => {
             let path = safe_output(&root,CONFIG)?;
             if path.exists() { return Err("configuration already exists; refusing overwrite".into()); }
-            let mut file = fs::OpenOptions::new().write(true).create_new(true).open(path).map_err(|e| e.to_string())?;
-            file.write_all(include_bytes!("../examples/docs-guard.toml")).map_err(|e| e.to_string())?;
+            write_output(&path,include_bytes!("../examples/docs-guard.toml"),false)?;
             if emit(cli.json,&serde_json::json!({"schema_version":1,"version":env!("CARGO_PKG_VERSION"),"outcome":"CONFIG_CREATED_NOT_CHECKED","path":CONFIG}),&format!("Created {CONFIG}; adapt identity and roles, create missing curated docs, stage inputs.")).is_err() { return Ok(2); }
             return Ok(0);
         },
@@ -585,7 +658,7 @@ fn run(cli: &Cli) -> Result<u8> {
         for p in &report.legacy_adoptions { out.push_str(&format!("\nLEGACY_ADOPTION {p}")); }
         emit(false,&serde_json::Value::Null,&out)?;
         let mut stderr = std::io::stderr().lock();
-        for f in &report.findings { writeln!(stderr,"{} {}: {}",f.code,f.path,f.detail).map_err(|e| e.to_string())?; }
+        for f in &report.findings { writeln!(stderr,"{} {}: {}",f.code,f.path,f.detail.escape_debug()).map_err(|e| e.to_string())?; }
         stderr.flush().map_err(|e| e.to_string())?;
     }
     Ok(if report.findings.is_empty() {0} else {1})
@@ -605,7 +678,7 @@ fn main() -> ExitCode {
             // Runtime errors before rendering are still machine-readable.
             if cli.json {
                 let _ = emit(true,&serde_json::json!({"schema_version":1,"version":env!("CARGO_PKG_VERSION"),"outcome":"ERROR","code":"EXECUTION_ERROR","detail":e}),"");
-            } else { let _ = writeln!(std::io::stderr().lock(),"DOCS_GUARD_ERROR: {e}"); }
+            } else { let _ = writeln!(std::io::stderr().lock(),"DOCS_GUARD_ERROR: {}",e.escape_debug()); }
             2
         }
     };

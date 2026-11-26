@@ -227,3 +227,47 @@ fn change_rules_use_trusted_base_and_keep_old_policy() {
     repo.git(&["commit","-qm","source and documentation"]);
     repo.expect(&["check","--base","HEAD~1"],0);
 }
+
+#[test]
+fn reports_manifest_drift_and_review_alternative() {
+    let repo=Repo::new(); repo.fixture();
+    let cfg=include_str!("../examples/docs-guard.toml").replace("replace-with-project-id","fixture")
+        .replace("change_rules = []\n","")
+        + "\n[[change_rules]]\nid = \"source-status\"\nwatch = [\"src\"]\nrequire = [\"docs/PROJECT_STATUS.md\"]\nreview_document = \"AGENTS.md\"\n";
+    // Bootstrap on a prior commit without configured rules.
+    repo.generated();
+    repo.git(&["commit","-qm","baseline"]);
+    repo.put("docs-guard.toml",&cfg);
+    repo.git(&["add","docs-guard.toml"]);
+    repo.expect(&["generate"],0);
+    repo.git(&["add","docs/inventory"]);
+    repo.expect(&["check","--index","--base","HEAD"],0);
+    repo.git(&["commit","-qm","policy"]);
+    repo.git(&["rm","src/main.ts"]);
+    repo.put("src/new.ts","export const b = 2;\n");
+    repo.git(&["add","src/new.ts"]);
+    let report=repo.expect(&["check","--index","--base","HEAD"],1);
+    let findings=report["findings"].as_array().unwrap();
+    assert!(findings.iter().any(|f| f["code"]=="STALE_GENERATED" && f["detail"].as_str().unwrap().contains("src/main.ts")));
+    assert!(findings.iter().any(|f| f["code"]=="DOCUMENT_CHANGE_REQUIRED"));
+    repo.put("AGENTS.md","Reviewed source-only change; no status update required.\n");
+    repo.git(&["add","AGENTS.md"]);
+    repo.expect(&["generate"],0);
+    repo.git(&["add","docs/inventory"]);
+    repo.expect(&["check","--index","--base","HEAD"],0);
+}
+#[test]
+fn rejects_nonportable_generated_path_and_oversize_markdown() {
+    let repo=Repo::new(); repo.fixture();
+    let cfg=include_str!("../examples/docs-guard.toml").replace("replace-with-project-id","fixture")
+        .replace("docs/inventory/DOCUMENT_REGISTER.md","docs/inventory/CON.md");
+    repo.put("docs-guard.toml",&cfg);
+    repo.git(&["add","docs-guard.toml"]);
+    repo.expect(&["generate"],2);
+    assert!(!repo.root.join("docs/inventory").exists());
+    repo.put("docs-guard.toml",&include_str!("../examples/docs-guard.toml").replace("replace-with-project-id","fixture"));
+    repo.put("docs/large.md",&"x".repeat(4 * 1024 * 1024 + 1));
+    repo.git(&["add","."]);
+    let report=repo.expect(&["generate"],2);
+    assert!(report["detail"].as_str().unwrap().contains("size limit"));
+}

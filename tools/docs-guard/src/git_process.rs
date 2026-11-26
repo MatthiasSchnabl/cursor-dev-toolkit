@@ -58,7 +58,7 @@ pub(crate) fn git(root: &Path, args: &[&str], input: Option<&[u8]>) -> Result<Ve
         loop {
             if status.is_none() { status = child.try_wait().map_err(|e| e.to_string())?; }
             if let Some(exit) = status {
-                if out.is_finished() && err.is_finished() && writer.as_ref().map_or(true, |w| w.is_finished()) {
+                if out.is_finished() && err.is_finished() && writer.as_ref().is_none_or(|w| w.is_finished()) {
                     let stdout = out.join().map_err(|_| "Git stdout reader panicked")??;
                     let stderr = err.join().map_err(|_| "Git stderr reader panicked")??;
                     if !exit.success() {
