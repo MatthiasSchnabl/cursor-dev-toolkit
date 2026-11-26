@@ -14,6 +14,8 @@ use git_process::git;
 
 type Result<T> = std::result::Result<T, String>;
 const CONFIG: &str = "docs-guard.toml";
+const MAX_CONFIG: usize = 256 * 1024;
+const MAX_POLICY_ITEMS: usize = 2048;
 const MAX_MARKDOWN: usize = 4 * 1024 * 1024;
 const MAX_FINDINGS: usize = 10_000;
 const MAX_OUTPUT_FILE: usize = 32 * 1024 * 1024;
@@ -216,12 +218,23 @@ impl Config {
     }
     fn validate(&self) -> Result<()> {
         if self.schema_version != 1 || (self.repository.trim().is_empty() || self.repository == "replace-with-project-id") { return Err("unsupported schema or missing repository identity".into()); }
-        if within(&self.register,&self.manifest) || within(&self.manifest,&self.register) || within(&self.register,CONFIG) || within(&self.manifest,CONFIG) {
+        let reg = self.register.to_lowercase();
+        let man = self.manifest.to_lowercase();
+        if within(&reg,&man) || within(&man,&reg) || within(&reg,CONFIG) || within(&man,CONFIG) {
             return Err("generated paths must be distinct from one another and config".into());
         }
         for p in [&self.register, &self.manifest].into_iter().chain(self.exclude_document_roots.iter()).chain(self.roles.values()).chain(self.extra_required.iter()).chain(self.optional_documents.iter()).chain(self.link_exclusions.iter()) {
             validate_path(p)?;
         }
+        for p in [&self.register,&self.manifest] {
+            if !p.is_ascii() || !p.split('/').all(portable_output_component) {
+                return Err(format!("generated paths require portable ASCII components: {p}"));
+            }
+        }
+        let policy_items = self.document_roots.len() + self.document_extensions.len() + self.exclude_document_roots.len() +
+            self.roles.len() + self.extra_required.len() + self.optional_documents.len() + self.link_exclusions.len() +
+            self.change_rules.iter().map(|r| 1 + r.watch.len() + r.require.len() + usize::from(r.review_document.is_some())).sum::<usize>();
+        if policy_items > MAX_POLICY_ITEMS { return Err("configuration policy item limit exceeded".into()); }
         for p in &self.document_roots {
             if p != "." { validate_path(p)?; }
         }
@@ -235,7 +248,7 @@ impl Config {
         for role in self.required_roles() {
             if !self.roles.contains_key(role) { return Err(format!("profile requires role: {role}")); }
         }
-        if self.roles.values().chain(self.extra_required.iter()).chain(self.optional_documents.iter()).any(|p| p == &self.register || p == &self.manifest || p == CONFIG) {
+        if self.roles.values().chain(self.extra_required.iter()).chain(self.optional_documents.iter()).any(|p| p.to_lowercase() == reg || p.to_lowercase() == man || p.eq_ignore_ascii_case(CONFIG)) {
             return Err("generated files cannot fulfill curated documentation requirements".into());
         }
         let mut ids = BTreeSet::new();
@@ -289,6 +302,20 @@ fn href(path: &str) -> String {
     }
     result
 }
+fn markdown_label(value: &str) -> String {
+    let mut out = String::new();
+    for c in value.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '[' | ']' | '*' | '_' | '~' | '!' | '#' | '\\' => { out.push('\\'); out.push(c); }
+            '\u{0060}' => { out.push('\\'); out.push(c); }
+            _ => out.push(c),
+        }
+    }
+    out
+}
 fn register(config: &Config, docs: &[String]) -> Vec<u8> {
     let mut groups: BTreeMap<String, Vec<&str>> = BTreeMap::new();
     for p in docs {
@@ -297,9 +324,9 @@ fn register(config: &Config, docs: &[String]) -> Vec<u8> {
     }
     let mut out = format!("# Document register\n\nGenerated from Git. Presence is not semantic approval.\n\nDocuments: {}\n\n", docs.len());
     for (group, paths) in groups {
-        out.push_str(&format!("## {}\n\n", group.replace(['<','>'], "_")));
+        out.push_str(&format!("## {}\n\n", markdown_label(&group)));
         for p in paths {
-            let label = p.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('[', "\\[").replace(']', "\\]");
+            let label = markdown_label(p);
             out.push_str(&format!("- [{label}]({})\n", href(&relative(&config.register,p))));
         }
         out.push('\n');
@@ -369,6 +396,10 @@ fn resolve_link(source: &str, target: &str) -> Result<Option<String>> {
     Ok(Some(path))
 }
 fn audit_links(root: &Path, inv: &Inventory, config: &Config, docs: &[String], findings: &mut Vec<Finding>) -> Result<()> {
+    let mut directories = BTreeSet::new();
+    for key in inv.keys() {
+        for (i,_) in key.match_indices('/') { directories.insert(&key[..i]); }
+    }
     for path in docs {
         if !path.to_ascii_lowercase().ends_with(".md") || config.link_exclusions.iter().any(|p| within(path,p)) { continue; }
         let bytes = blob(root,inv,path)?;
@@ -380,7 +411,7 @@ fn audit_links(root: &Path, inv: &Inventory, config: &Config, docs: &[String], f
                 let line = newlines.partition_point(|i| *i < range.start) + 1;
                 match resolve_link(path,&dest_url) {
                     Ok(None) => (),
-                    Ok(Some(p)) if p.is_empty() || inv.get(&p).is_some_and(Entry::regular) || (!inv.contains_key(&p) && inv.keys().any(|key| within(key,&p))) => (),
+                    Ok(Some(p)) if p.is_empty() || inv.get(&p).is_some_and(Entry::regular) || (!inv.contains_key(&p) && directories.contains(p.as_str())) => (),
                     Ok(Some(p)) if inv.contains_key(&p) => findings.push(finding("UNSUPPORTED_LINK_TARGET",path,format!("line {line}: {dest_url} -> {p} (symlink or submodule)"))),
                     Ok(Some(p)) => findings.push(finding("BROKEN_LINK",path,format!("line {line}: {dest_url} -> {p}"))),
                     Err(e) => findings.push(finding("UNSAFE_LINK",path,format!("line {line}: {dest_url}: {e}"))),
@@ -421,17 +452,48 @@ fn safe_output(root: &Path, relative: &str) -> Result<PathBuf> {
     let pieces: Vec<_> = relative.split('/').collect();
     for (i, part) in pieces.iter().enumerate() {
         if !portable_output_component(part) { return Err(format!("nonportable output path: {relative}")); }
+        if path.is_dir() {
+            for entry in fs::read_dir(&path).map_err(|e| e.to_string())? {
+                let name = entry.map_err(|e| e.to_string())?.file_name();
+                let name = name.to_string_lossy();
+                if name.to_lowercase() == part.to_lowercase() && name.as_ref() != *part {
+                    return Err(format!("case-alias output path refused: {relative}"));
+                }
+            }
+        }
         path.push(part);
         match fs::symlink_metadata(&path) {
             Ok(m) if redirected_file(&m) => return Err(format!("redirected output path refused: {}",path.display())),
             Ok(m) if i+1 < pieces.len() && !m.is_dir() => return Err(format!("not a directory: {}",path.display())),
             Ok(m) if i+1 == pieces.len() && !m.is_file() => return Err(format!("not a regular file: {}",path.display())),
-            Ok(_) => (),
+            Ok(m) => {
+                if m.is_dir() && i+1 < pieces.len() {
+                    match fs::symlink_metadata(path.join(".git")) {
+                        Ok(_) => return Err(format!("nested repository output refused: {relative}")),
+                        Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
+                        Err(e) => return Err(e.to_string()),
+                    }
+                }
+            },
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
             Err(e) => return Err(e.to_string()),
         }
     }
     Ok(path)
+}
+fn validate_output_scope(config: &Config, inv: &Inventory) -> Result<()> {
+    for target in [&config.register,&config.manifest] {
+        let folded = target.to_lowercase();
+        for (path,entry) in inv {
+            let other = path.to_lowercase();
+            if path == target {
+                if !entry.regular() { return Err(format!("nonregular tracked output: {target}")); }
+            } else if within(&folded,&other) || within(&other,&folded) {
+                return Err(format!("generated path collides with tracked path: {target} / {path}"));
+            }
+        }
+    }
+    Ok(())
 }
 fn write_output(path: &Path, bytes: &[u8], existing: bool) -> Result<()> {
     let parent = path.parent().ok_or("missing parent")?;
@@ -459,6 +521,8 @@ struct Adoption<'a> {
 }
 fn check_output_attributes(root: &Path, path: &str) -> Result<()> {
     let bytes = git(root, &["check-attr","--cached","-z","filter","working-tree-encoding","ident","eol","--",path],None)?;
+    let live = git(root, &["check-attr","-z","filter","working-tree-encoding","ident","eol","--",path],None)?;
+    if live != bytes { return Err(format!("staged and worktree Git attributes differ: {path}")); }
     let fields: Vec<_> = bytes.split(|b| *b == 0).collect();
     if fields.len() != 13 || fields[12] != b"" {
         return Err(format!("unexpected Git attribute response: {path}"));
@@ -477,14 +541,16 @@ fn resolve_commit(root: &Path, reference: &str) -> Result<String> {
     Ok(utf8(git(root,&["rev-parse","--verify","--end-of-options",&spec],None)?)?.trim().to_owned())
 }
 fn load_config(root: &Path, inv: &Inventory) -> Result<Config> {
-    let config: Config = toml::from_str(&utf8(blob(root,inv,CONFIG)?)?).map_err(|e| format!("invalid config: {e}"))?;
+    let bytes = blob(root,inv,CONFIG)?;
+    if bytes.len() > MAX_CONFIG { return Err("configuration exceeds size limit".into()); }
+    let config: Config = toml::from_str(&utf8(bytes)?).map_err(|_| "invalid config; inspect local configuration")?;
     config.validate()?;
     Ok(config)
 }
-fn audit_change_rules(current: &Inventory, base: &Inventory, config: &Config, findings: &mut Vec<Finding>) {
+fn audit_change_rules(current: &Inventory, base: &Inventory, config: &Config, candidate: &Config, findings: &mut Vec<Finding>) {
     let changed: BTreeSet<&str> = current.keys().chain(base.keys())
         .filter(|p| current.get(*p) != base.get(*p)).map(String::as_str).collect();
-    let updated = |p: &str| current.get(p).is_some_and(|entry| entry.regular() && base.get(p).map(|old| &old.oid) != Some(&entry.oid));
+    let updated = |p: &str| p != candidate.register && p != candidate.manifest && current.get(p).is_some_and(|entry| entry.regular() && base.get(p).map(|old| &old.oid) != Some(&entry.oid));
     for rule in &config.change_rules {
         if !changed.iter().any(|path| rule.watch.iter().any(|prefix| within(path,prefix))) { continue; }
         if rule.review_document.as_deref().is_some_and(updated) { continue; }
@@ -507,6 +573,7 @@ fn evaluate(root: &Path, commit: Option<&str>, base: Option<&str>, generate: boo
         Some(utf8(git(root,&["hash-object","--stdin"],Some(&bytes))?)?.trim().to_owned())
     } else { None };
     let config = load_config(root,&inv)?;
+    validate_output_scope(&config,&inv)?;
     let mut findings = Vec::new();
     if !generate && !plan && base.is_none() && !config.change_rules.is_empty() {
         return Err("configured change rules require --base with a trusted comparison commit".into());
@@ -517,11 +584,11 @@ fn evaluate(root: &Path, commit: Option<&str>, base: Option<&str>, generate: boo
         git(root,&["merge-base","--is-ancestor",base_sha,&target],None)
             .map_err(|e| format!("comparison base must be an ancestor of target HEAD: {e}"))?;
         let previous = inventory(root,Some(base_sha))?;
-        audit_change_rules(&inv,&previous,&config,&mut findings);
+        audit_change_rules(&inv,&previous,&config,&config,&mut findings);
         // A changed or deleted rule cannot silently weaken the existing base policy.
         if previous.contains_key(CONFIG) && previous.get(CONFIG) != inv.get(CONFIG) {
             let old_config = load_config(root,&previous)?;
-            audit_change_rules(&inv,&previous,&old_config,&mut findings);
+            audit_change_rules(&inv,&previous,&old_config,&config,&mut findings);
         }
     }
     let required: BTreeSet<_> = config.roles.values().chain(config.extra_required.iter()).collect();
@@ -565,6 +632,7 @@ fn evaluate(root: &Path, commit: Option<&str>, base: Option<&str>, generate: boo
     let mut legacy_adoptions = Vec::new();
     if generate || plan {
         let targets = [(&config.register,&reg),(&config.manifest,&man)];
+        let mut observed = BTreeMap::new();
         for (p, bytes) in &targets {
             check_output_attributes(root,p)?;
             let requested = if *p == &config.register { adoption.register } else { adoption.manifest };
@@ -584,6 +652,7 @@ fn evaluate(root: &Path, commit: Option<&str>, base: Option<&str>, generate: boo
             }
             let target = safe_output(root,p)?;
             if !target.exists() {
+                observed.insert((*p).clone(),None);
                 changed_outputs.push((*p).clone());
                 if requested.is_some() {
                     findings.push(finding("ADOPTION_MISSING_WORKTREE",p,"restore the reviewed legacy output before adoption"));
@@ -591,6 +660,7 @@ fn evaluate(root: &Path, commit: Option<&str>, base: Option<&str>, generate: boo
             }
             if target.exists() {
                 let existing = read_worktree_bounded(&target)?;
+                observed.insert((*p).clone(),Some(existing.clone()));
                 if existing != **bytes { changed_outputs.push((*p).clone()); }
                 // Refuse to overwrite edits or pre-existing untracked files.
                 if (requested.is_some() || existing != **bytes) && (!inv.get(*p).is_some_and(|e| e.regular() && !e.oid.is_empty()) || blob(root,&inv,p)? != existing) {
@@ -603,7 +673,12 @@ fn evaluate(root: &Path, commit: Option<&str>, base: Option<&str>, generate: boo
             for (p,bytes) in targets {
                 if changed_outputs.contains(p) {
                     let path = safe_output(root,p)?;
-                    write_output(&path,bytes,path.exists())?;
+                    check_output_attributes(root,p)?;
+                    if inventory(root,commit)? != original { return Err("Git index changed before output replacement".into()); }
+                    let prior = observed.get(p).ok_or("missing output observation")?;
+                    let now = if path.exists() { Some(read_worktree_bounded(&path)?) } else { None };
+                    if &now != prior { return Err(format!("output changed after preflight: {p}")); }
+                    write_output(&path,bytes,prior.is_some())?;
                 }
             }
         }

@@ -29,7 +29,7 @@ pub(crate) fn git(root: &Path, args: &[&str], input: Option<&[u8]>) -> Result<Ve
     let deadline = Instant::now() + remaining.min(CALL_TIMEOUT);
     if input.is_some_and(|data| data.len() > MAX_INPUT) { return Err("Git input exceeds size limit".into()); }
     let mut command = Command::new("git");
-    for key in ["GIT_DIR","GIT_WORK_TREE","GIT_INDEX_FILE","GIT_COMMON_DIR","GIT_OBJECT_DIRECTORY","GIT_ALTERNATE_OBJECT_DIRECTORIES","GIT_NAMESPACE","GIT_CONFIG_COUNT","GIT_CONFIG_PARAMETERS","GIT_CONFIG","GIT_REPLACE_REF_BASE"] {
+    for key in ["GIT_DIR","GIT_WORK_TREE","GIT_INDEX_FILE","GIT_COMMON_DIR","GIT_OBJECT_DIRECTORY","GIT_ALTERNATE_OBJECT_DIRECTORIES","GIT_NAMESPACE","GIT_CONFIG_COUNT","GIT_CONFIG_PARAMETERS","GIT_CONFIG","GIT_REPLACE_REF_BASE","GIT_CONFIG_GLOBAL","GIT_CONFIG_SYSTEM","GIT_GRAFT_FILE","GIT_SHALLOW_FILE","GIT_ATTR_SOURCE"] {
         if std::env::var_os(key).is_some() { return Err(format!("unsupported Git environment override: {key}")); }
     }
     command.current_dir(root)
@@ -60,9 +60,9 @@ pub(crate) fn git(root: &Path, args: &[&str], input: Option<&[u8]>) -> Result<Ve
             if let Some(exit) = status {
                 if out.is_finished() && err.is_finished() && writer.as_ref().is_none_or(|w| w.is_finished()) {
                     let stdout = out.join().map_err(|_| "Git stdout reader panicked")??;
-                    let stderr = err.join().map_err(|_| "Git stderr reader panicked")??;
+                    let _stderr = err.join().map_err(|_| "Git stderr reader panicked")??;
                     if !exit.success() {
-                        return Err(format!("git {}: {}",args.join(" "),String::from_utf8_lossy(&stderr).trim()));
+                        return Err(format!("Git {} failed (status {}); stderr omitted to protect repository configuration",args.first().copied().unwrap_or("command"),exit));
                     }
                     if let Some(w) = writer {
                         w.join().map_err(|_| "Git stdin writer panicked")?.map_err(|e| e.to_string())?;
@@ -70,7 +70,7 @@ pub(crate) fn git(root: &Path, args: &[&str], input: Option<&[u8]>) -> Result<Ve
                     return Ok(stdout);
                 }
             }
-            if Instant::now() >= deadline { return Err(format!("Git timeout: {}",args.join(" "))); }
+            if Instant::now() >= deadline { return Err(format!("Git timeout: {}",args.first().copied().unwrap_or("command"))); }
             thread::sleep(Duration::from_millis(5));
         }
     })();

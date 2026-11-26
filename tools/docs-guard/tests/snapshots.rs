@@ -297,3 +297,52 @@ fn read_only_checks_preserve_index_and_worktree() {
     assert_eq!(register,read(&repo.root,"docs/inventory/DOCUMENT_REGISTER.md"));
     assert_eq!(read(&repo.root,"README.md"),b"unstaged edit\n");
 }
+
+#[test]
+fn rejects_generated_alias_and_nested_repository() {
+    let repo=Repo::new(); repo.fixture();
+    let cfg=include_str!("../examples/docs-guard.toml").replace("replace-with-project-id","fixture");
+    repo.put("docs-guard.toml",&cfg.replace("docs/inventory/DOCUMENT_REGISTER.md","readme.md"));
+    repo.git(&["add","docs-guard.toml"]);
+    repo.expect(&["generate"],2);
+    assert_eq!(read(&repo.root,"README.md"),b"[index](docs/INDEX.md)\n");
+    repo.put("docs-guard.toml",&cfg.replace("docs/inventory/DOCUMENT_REGISTER.md","nested/register.md"));
+    repo.git(&["add","docs-guard.toml"]);
+    fs::create_dir_all(repo.root.join("nested/.git")).unwrap();
+    repo.expect(&["generate"],2);
+    assert!(!repo.root.join("nested/register.md").exists());
+    assert!(!repo.root.join("docs/inventory").exists());
+}
+#[test]
+fn rejects_unstaged_attribute_drift_and_oversize_config() {
+    let repo=Repo::new(); repo.fixture();
+    repo.put(".gitattributes","docs/inventory/* eol=lf\n");
+    repo.git(&["add",".gitattributes"]);
+    repo.put(".gitattributes","docs/inventory/* filter=custom\n");
+    let error=repo.expect(&["generate"],2);
+    assert!(error["detail"].as_str().unwrap().contains("attributes differ"));
+    assert!(!repo.root.join("docs/inventory").exists());
+    repo.put("docs-guard.toml",&format!("{}\n# {}",include_str!("../examples/docs-guard.toml"),"x".repeat(256*1024)));
+    repo.git(&["add","docs-guard.toml"]);
+    let error=repo.expect(&["check","--index"],2);
+    assert!(error["detail"].as_str().unwrap().contains("size limit"));
+}
+#[test]
+fn mode_only_document_change_cannot_satisfy_rule() {
+    let repo=Repo::new(); repo.fixture(); repo.generated();
+    repo.git(&["commit","-qm","baseline"]);
+    let cfg=include_str!("../examples/docs-guard.toml").replace("replace-with-project-id","fixture").replace("change_rules = []\n","")
+        + "\n[[change_rules]]\nid = \"source-status\"\nwatch = [\"src\"]\nrequire = [\"docs/PROJECT_STATUS.md\"]\n";
+    repo.put("docs-guard.toml",&cfg);
+    repo.git(&["add","docs-guard.toml"]);
+    repo.expect(&["generate"],0);
+    repo.git(&["add","docs/inventory"]);
+    repo.git(&["commit","-qm","policy"]);
+    repo.put("src/main.ts","export const a = 4;\n");
+    repo.git(&["add","src/main.ts"]);
+    repo.git(&["update-index","--chmod=+x","docs/PROJECT_STATUS.md"]);
+    repo.expect(&["generate"],0);
+    repo.git(&["add","docs/inventory"]);
+    let report=repo.expect(&["check","--index","--base","HEAD"],1);
+    assert!(report["findings"].as_array().unwrap().iter().any(|f|f["code"]=="DOCUMENT_CHANGE_REQUIRED"));
+}
