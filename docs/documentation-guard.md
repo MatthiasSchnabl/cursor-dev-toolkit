@@ -42,9 +42,15 @@ Generation checks staged Git attributes for filters, working-tree encoding, iden
 3. Integration tests: clean HEAD vs staged/unstaged changes, generation convergence, missing links/files, invalid configuration, symlink/submodule, path encoding, SHA-256 repositories, filters/CRLF, Windows/Linux; document exact job evidence.
 4. Verify per-file atomic replacement, partial-failure recovery, Git environment controls and filters; establish supported cross-platform path policy and strict snapshot identity evidence for index mode.
 5. Verify changed-output reporting in plan; optional anchors/advanced link syntax and change-trigger rules need design/test. Add generic enforcement for documentation-change review only where justified.
-6. Add toolkit installation/update/doctor, version pin and checksum-verified release assets; no release until verified. Use existing local/cloud adapter infrastructure and no per-repository toolkit clone.
+6. Validate the explicit offline installer and activate only approved pins. Integrate existing local/cloud bootstrap only after release acceptance; no per-repository toolkit clone.
 7. Extend existing external QA runner with allowlisted standalone check, no weakening or replacement of existing gates before proven parity. No GitHub Actions, no changes to runner/Contabo during source-draft phase.
 8. Pilot on a reference repository and a structurally different non-Rust repository. Keep previous guard until migration acceptance. Required status checks and protected-branch enforcement are separate from local agent rules.
+
+## Central binary distribution (source draft)
+
+`versions.env` holds the version and release-state pin. `scripts/docs-guard-release.lock.tsv` contains immutable approved target/source/checksum rows; it intentionally has no rows and the release state is pending. `scripts/docs-guard-install.sh doctor|install <local-release-binary>|verify` is an explicit, offline installer/verification adapter using the existing toolkit shell helpers. No download, compilation or implicit PATH activation; no action in existing bootstrap/update until the release is accepted.
+
+Once real QA has produced target binaries and approved their hashes, commit exact pins and release assets from the same reviewed source. Install into the existing user-local toolkit data directory, version/target-specific, outside the plugin copy tree. Verify SHA-256 before copying, after copying and on each verify. Refuse replacing a different binary under an existing immutable version. Use the verified absolute executable path in Cursor and runner integrations, not an unverified PATH match. The installer uses same-filesystem hard-link publication; unsupported filesystems fail closed. Test this on Linux and native Windows via Git Bash before activation. macOS and untested target rows are not supported by this draft. Rollback selects a previously accepted immutable version, not an overwritten binary.
 
 ## Agent contract after acceptance
 
