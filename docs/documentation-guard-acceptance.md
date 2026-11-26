@@ -59,3 +59,17 @@ See [error-handling audit](documentation-guard-hardening-audit.md). Validate eac
 Status: BLOCKED before execution. Central runner health was reachable; no canonical source checkout for this repository could be identified in the available workspace inventory. The centrally enforced workspace lifecycle requires an authorized, clean, synchronized canonical main checkout before admitting a task workspace. Do not reuse another project's checkout or bypass admission via legacy clone/create, host access or alternate runners. No build/test job submitted, no source checkout created, no lockfile fabricated.
 
 The root Cargo workspace now declares the CLI member with resolver 2 so the existing root-manifest quality profiles can discover it. The application lockfile belongs at repository root; generate it using authorized Cargo before locked gates. Build outputs are ignored and excluded from user-plugin copies. AGENTS.md documents consumer rules. Keep the existing draft branch, do not activate the release. Once the canonical source checkout is provisioned by the workspace owner, verify its origin/HEAD/clean status, bind it through the normal lifecycle, checkout the reviewed draft, resolve the root lockfile and proceed with the ordered gates. No database environment needed.
+
+## Contabo execution evidence — 2026-11-26
+
+Admission blocker resolved: canonical checkout provisioned by operator, WLP-03 main binding confirmed, exact branch baseline 8ea45216674578ab5cbf065c5412af3f4aa35db1. No R2 or R3 needed.
+
+- Lockfile: job dab28c918b3f4e04b368aeed100168d3, exit 0; Cargo/rustc 1.99.1, Git 2.39.5. Root lockfile SHA-256 ce94e298d2ba071113cd29a464191c11b7244f696ab05d2981f7aef7bb3306f7; 51 registry dependencies, checksum fields present. License/security audit remains pending.
+- Job 71d1df36d236472c95d5dff8b131f047: formatted source, locked all-target check PASS. Native job c933fdfdb75d40f9abc68d592e9ae480 identified two Clippy findings, corrected without suppression. Job 18fcd3a7ab7c427fa055b0367c45af7c formatting regression corrected.
+- Native job 1f006fdd09944465a40964ebf39a2d06: fmt/check/clippy PASS, 7/7 unit PASS; 18 integration tests failed launching the CLI binary (OS ENOENT). Generic runner had concurrently built into the same target tree under a different absolute mount path, so stale CARGO_BIN_EXE paths are a plausible cause, not yet proven. Keep target trees separate for subsequent generic/native jobs; do not weaken or skip the native gate.
+- Generic job c318997323aa4ff2b8ba8144253c91ca: 7 unit + 17 integration PASS; one synthetic fixture attempted git rm of an uncommitted staged file. Fixed fixture by committing baseline.
+- Generic job 88ef13ff6dc54635be5778ba7cedbab9: locked 7/7 unit + 18/18 integration PASS, zero ignored, release build PASS; installer test failed because its temporary home was on non-executable /tmp. Overall job exit 1, not full PASS.
+- Installer preflights execute permission before publishing and rechecks afterward. Job b154eb13af2748daabc37235dbc5a5b7 proved /tmp is mounted noexec and installer selftest PASS with TMPDIR inside ignored executable build scratch. No host mount change.
+- Added Unix missing-Git CLI regression; rerun required. All findings remain open pending scoped runtime verification and final gates. No release pins approved.
+
+Next: native gate and commit/push, separate generic target path, supply-chain validation, remaining real failure injection, Windows and reference/pilot acceptance.

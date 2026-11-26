@@ -5,11 +5,29 @@ pub(crate) type Result<T> = std::result::Result<T, GuardError>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Code {
-    ConfigMissing, ConfigInvalid, ConfigExists, InvalidPath, OutputScope,
-    GitEnvironment, GitUnavailable, GitFailed, GitTimeout, GitProtocol,
-    InvalidSnapshot, ComparisonBase, SnapshotChanged, OutputChanged,
-    UnsupportedAttribute, ResourceLimit, InvalidEncoding, InvalidLink,
-    FileRead, FileWrite, OutputStream, Serialization, Internal,
+    ConfigMissing,
+    ConfigInvalid,
+    ConfigExists,
+    InvalidPath,
+    OutputScope,
+    GitEnvironment,
+    GitUnavailable,
+    GitFailed,
+    GitTimeout,
+    GitProtocol,
+    InvalidSnapshot,
+    ComparisonBase,
+    SnapshotChanged,
+    OutputChanged,
+    UnsupportedAttribute,
+    ResourceLimit,
+    InvalidEncoding,
+    InvalidLink,
+    FileRead,
+    FileWrite,
+    OutputStream,
+    Serialization,
+    Internal,
 }
 
 impl Code {
@@ -42,8 +60,14 @@ impl Code {
     }
     fn category(self) -> &'static str {
         match self {
-            Self::ConfigMissing | Self::ConfigInvalid | Self::ConfigExists | Self::ComparisonBase => "configuration",
-            Self::InvalidPath | Self::OutputScope | Self::GitEnvironment | Self::UnsupportedAttribute => "security",
+            Self::ConfigMissing
+            | Self::ConfigInvalid
+            | Self::ConfigExists
+            | Self::ComparisonBase => "configuration",
+            Self::InvalidPath
+            | Self::OutputScope
+            | Self::GitEnvironment
+            | Self::UnsupportedAttribute => "security",
             Self::GitUnavailable | Self::GitFailed | Self::GitTimeout | Self::GitProtocol => "git",
             Self::InvalidSnapshot | Self::SnapshotChanged | Self::OutputChanged => "snapshot",
             Self::ResourceLimit => "resource",
@@ -90,27 +114,44 @@ struct Context {
 
 impl GuardError {
     pub(crate) fn new(code: Code, detail: impl Into<String>) -> Self {
-        Self { code, git_exit_code: None, context: Box::new(Context {
-            detail: detail.into(), operation: None, path: None, source: None,
-            written_outputs: Vec::new(), write_attempted: None, cleanup_failed: false, io_kind: None,
-        }) }
+        Self {
+            code,
+            git_exit_code: None,
+            context: Box::new(Context {
+                detail: detail.into(),
+                operation: None,
+                path: None,
+                source: None,
+                written_outputs: Vec::new(),
+                write_attempted: None,
+                cleanup_failed: false,
+                io_kind: None,
+            }),
+        }
     }
     pub(crate) fn caused_by(mut self, source: impl Error + Send + Sync + 'static) -> Self {
         self.context.source = Some(Box::new(source));
         self
     }
     pub(crate) fn operation(mut self, operation: impl Into<String>) -> Self {
-        if self.context.operation.is_none() { self.context.operation = Some(operation.into()); }
+        if self.context.operation.is_none() {
+            self.context.operation = Some(operation.into());
+        }
         self
     }
     pub(crate) fn at(mut self, path: impl Into<String>) -> Self {
-        if self.context.path.is_none() { self.context.path = Some(path.into()); }
+        if self.context.path.is_none() {
+            self.context.path = Some(path.into());
+        }
         self
     }
     pub(crate) fn io(code: Code, operation: &str, path: Option<&Path>, source: io::Error) -> Self {
-        let mut err = Self::new(code,format!("I/O failure ({:?})",source.kind())).operation(operation);
-        if let Some(path) = path { err = err.at(path.to_string_lossy().into_owned()); }
-        err.context.io_kind = Some(format!("{:?}",source.kind()));
+        let mut err =
+            Self::new(code, format!("I/O failure ({:?})", source.kind())).operation(operation);
+        if let Some(path) = path {
+            err = err.at(path.to_string_lossy().into_owned());
+        }
+        err.context.io_kind = Some(format!("{:?}", source.kind()));
         err.caused_by(source)
     }
     pub(crate) fn writes(mut self, completed: &[String], attempted: Option<&str>) -> Self {
@@ -118,12 +159,18 @@ impl GuardError {
         self.context.write_attempted = attempted.map(str::to_owned);
         self
     }
-    pub(crate) fn git_exit(mut self, code: Option<i32>) -> Self { self.git_exit_code = code; self }
+    pub(crate) fn git_exit(mut self, code: Option<i32>) -> Self {
+        self.git_exit_code = code;
+        self
+    }
     pub(crate) fn with_completed(mut self, completed: &[String]) -> Self {
         self.context.written_outputs = completed.to_vec();
         self
     }
-    pub(crate) fn cleanup_failed(mut self) -> Self { self.context.cleanup_failed = true; self }
+    pub(crate) fn cleanup_failed(mut self) -> Self {
+        self.context.cleanup_failed = true;
+        self
+    }
     pub(crate) fn public_json(&self) -> serde_json::Value {
         serde_json::json!({
             "schema_version": 1, "version": env!("CARGO_PKG_VERSION"), "outcome": "ERROR",
@@ -141,20 +188,40 @@ impl GuardError {
 }
 impl fmt::Display for GuardError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f,"{}: {}",self.code.name(),self.context.detail.escape_debug())?;
-        if let Some(op) = &self.context.operation { write!(f," [operation={}]",op.escape_debug())?; }
-        if let Some(path) = &self.context.path { write!(f," [path={}]",path.escape_debug())?; }
-        if !self.context.written_outputs.is_empty() || self.context.write_attempted.is_some() {
-            write!(f," [completed={:?}; attempted={:?}; inspect outputs before staging]",self.context.written_outputs,self.context.write_attempted)?;
+        write!(
+            f,
+            "{}: {}",
+            self.code.name(),
+            self.context.detail.escape_debug()
+        )?;
+        if let Some(op) = &self.context.operation {
+            write!(f, " [operation={}]", op.escape_debug())?;
         }
-        if let Some(code) = self.git_exit_code { write!(f," [git_exit={code}]")?; }
-        if self.context.cleanup_failed { write!(f," [process cleanup failed; inspect runner]")?; }
-        write!(f,"; {}",self.code.recovery())
+        if let Some(path) = &self.context.path {
+            write!(f, " [path={}]", path.escape_debug())?;
+        }
+        if !self.context.written_outputs.is_empty() || self.context.write_attempted.is_some() {
+            write!(
+                f,
+                " [completed={:?}; attempted={:?}; inspect outputs before staging]",
+                self.context.written_outputs, self.context.write_attempted
+            )?;
+        }
+        if let Some(code) = self.git_exit_code {
+            write!(f, " [git_exit={code}]")?;
+        }
+        if self.context.cleanup_failed {
+            write!(f, " [process cleanup failed; inspect runner]")?;
+        }
+        write!(f, "; {}", self.code.recovery())
     }
 }
 impl Error for GuardError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
-        self.context.source.as_deref().map(|e| e as &(dyn Error + 'static))
+        self.context
+            .source
+            .as_deref()
+            .map(|e| e as &(dyn Error + 'static))
     }
 }
 
@@ -163,18 +230,24 @@ mod tests {
     use super::*;
     #[test]
     fn preserves_source_without_serializing_it() {
-        let e = GuardError::io(Code::FileWrite,"persist",None,io::Error::new(io::ErrorKind::PermissionDenied,"secret-canary"));
+        let e = GuardError::io(
+            Code::FileWrite,
+            "persist",
+            None,
+            io::Error::new(io::ErrorKind::PermissionDenied, "secret-canary"),
+        );
         assert!(e.source().is_some());
-        assert_eq!(e.public_json()["code"],"FILE_WRITE");
+        assert_eq!(e.public_json()["code"], "FILE_WRITE");
         assert!(!e.public_json().to_string().contains("secret-canary"));
         assert!(!e.to_string().contains("secret-canary"));
     }
     #[test]
     fn partial_write_metadata_is_explicit() {
-        let e = GuardError::new(Code::FileWrite,"write failed").writes(&["register.md".into()],Some("manifest.tsv"));
+        let e = GuardError::new(Code::FileWrite, "write failed")
+            .writes(&["register.md".into()], Some("manifest.tsv"));
         let json = e.public_json();
-        assert_eq!(json["partial_write_possible"],true);
-        assert_eq!(json["written_outputs"][0],"register.md");
-        assert_eq!(json["write_attempted"],"manifest.tsv");
+        assert_eq!(json["partial_write_possible"], true);
+        assert_eq!(json["written_outputs"][0], "register.md");
+        assert_eq!(json["write_attempted"], "manifest.tsv");
     }
 }

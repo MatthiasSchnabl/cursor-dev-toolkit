@@ -79,12 +79,14 @@ case "$1" in
     cp -- "$asset" "$temp"
     verify_binary "$temp"
     chmod 755 "$temp"
+    [[ -x "$temp" ]] || die "installation filesystem does not permit execution"
     # No destructive replacement: an already existing version is immutable.
     # The lock pin also gets rechecked on every verify.
     if ! ln -T -- "$temp" "$dest"; then
       die "could not publish immutable binary (existing file or filesystem limitation)"
     fi
     verify_binary "$dest"
+    [[ -x "$dest" ]] || die "installed binary is not executable"
     printf '%s\n' "$dest"
     ;;
 esac
