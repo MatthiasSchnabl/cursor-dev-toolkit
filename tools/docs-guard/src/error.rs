@@ -79,12 +79,13 @@ pub(crate) struct GuardError {
     written_outputs: Vec<String>,
     write_attempted: Option<String>,
     cleanup_failed: bool,
+    pub(crate) git_exit_code: Option<i32>,
 }
 
 impl GuardError {
     pub(crate) fn new(code: Code, detail: impl Into<String>) -> Self {
         Self { code, detail: detail.into(), operation: None, path: None, source: None,
-            written_outputs: Vec::new(), write_attempted: None, cleanup_failed: false }
+            written_outputs: Vec::new(), write_attempted: None, cleanup_failed: false, git_exit_code: None }
     }
     pub(crate) fn caused_by(mut self, source: impl Error + Send + Sync + 'static) -> Self {
         self.source = Some(Box::new(source));
@@ -108,6 +109,7 @@ impl GuardError {
         self.write_attempted = attempted.map(str::to_owned);
         self
     }
+    pub(crate) fn git_exit(mut self, code: Option<i32>) -> Self { self.git_exit_code = code; self }
     pub(crate) fn cleanup_failed(mut self) -> Self { self.cleanup_failed = true; self }
     pub(crate) fn public_json(&self) -> serde_json::Value {
         serde_json::json!({
@@ -117,7 +119,7 @@ impl GuardError {
             "detail": self.detail, "recovery": self.code.recovery(),
             "written_outputs": self.written_outputs, "write_attempted": self.write_attempted,
             "partial_write_possible": !self.written_outputs.is_empty() || self.write_attempted.is_some(),
-            "cleanup_failed": self.cleanup_failed,
+            "cleanup_failed": self.cleanup_failed, "git_exit_code": self.git_exit_code,
         })
     }
 }
@@ -129,6 +131,7 @@ impl fmt::Display for GuardError {
         if !self.written_outputs.is_empty() || self.write_attempted.is_some() {
             write!(f," [completed={:?}; attempted={:?}; inspect outputs before staging]",self.written_outputs,self.write_attempted)?;
         }
+        if let Some(code) = self.git_exit_code { write!(f," [git_exit={code}]")?; }
         if self.cleanup_failed { write!(f," [process cleanup failed; inspect runner]")?; }
         write!(f,"; {}",self.code.recovery())
     }

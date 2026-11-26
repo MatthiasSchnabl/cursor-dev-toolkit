@@ -118,7 +118,9 @@ fn rejects_git_scope_overrides() {
         .env("GIT_INDEX_FILE",repo.root.join("wrong-index")).args(["--json","check","--index"]).output().unwrap();
     assert_eq!(out.status.code(),Some(2));
     let report:serde_json::Value=serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(report["code"],"EXECUTION_ERROR");
+    assert_eq!(report["code"],"GIT_ENVIRONMENT");
+    assert_eq!(report["category"],"security");
+    assert!(report["operation"].is_string());
     assert!(report["detail"].as_str().unwrap().contains("GIT_INDEX_FILE"));
 }
 
@@ -345,4 +347,48 @@ fn mode_only_document_change_cannot_satisfy_rule() {
     repo.git(&["add","docs/inventory"]);
     let report=repo.expect(&["check","--index","--base","HEAD"],1);
     assert!(report["findings"].as_array().unwrap().iter().any(|f|f["code"]=="DOCUMENT_CHANGE_REQUIRED"));
+}
+
+#[test]
+fn distinguishes_config_snapshot_and_git_failures_without_echoing_config() {
+    let repo=Repo::new();
+    let missing=repo.expect(&["check","--index"],2);
+    assert_eq!(missing["code"],"CONFIG_MISSING");
+    assert_eq!(missing["path"],"docs-guard.toml");
+    assert_eq!(missing["partial_write_possible"],false);
+    repo.expect(&["init"],0);
+    let exists=repo.expect(&["init"],2);
+    assert_eq!(exists["code"],"CONFIG_EXISTS");
+    repo.put("docs-guard.toml","private-canary = \"unterminated\n");
+    repo.git(&["add","docs-guard.toml"]);
+    let invalid=repo.expect(&["check","--index"],2);
+    assert_eq!(invalid["code"],"CONFIG_INVALID");
+    assert_eq!(invalid["category"],"configuration");
+    assert!(!invalid.to_string().contains("private-canary"));
+    let bad_commit=repo.expect(&["check","--commit","missing-commit"],2);
+    assert_eq!(bad_commit["code"],"INVALID_SNAPSHOT");
+}
+#[test]
+fn unsafe_link_diagnostic_does_not_echo_raw_destination() {
+    let repo=Repo::new(); repo.fixture();
+    repo.put("README.md","[bad](file:///private?token=secret-canary)\n");
+    repo.git(&["add","README.md"]);
+    let report=repo.expect(&["plan"],1);
+    assert!(report["findings"].as_array().unwrap().iter().any(|f|f["code"]=="UNSAFE_LINK"));
+    assert!(!report.to_string().contains("secret-canary"));
+}
+#[test]
+fn error_codes_distinguish_scope_and_limit() {
+    let repo=Repo::new(); repo.fixture();
+    let cfg=include_str!("../examples/docs-guard.toml").replace("replace-with-project-id","fixture");
+    repo.put("docs-guard.toml",&cfg.replace("docs/inventory/DOCUMENT_REGISTER.md","readme.md"));
+    repo.git(&["add","docs-guard.toml"]);
+    let error=repo.expect(&["generate"],2);
+    assert_eq!(error["code"],"CONFIG_INVALID");
+    assert_eq!(error["partial_write_possible"],false);
+    repo.put("docs-guard.toml",&format!("{cfg}\n# {}", "x".repeat(256*1024)));
+    repo.git(&["add","docs-guard.toml"]);
+    let error=repo.expect(&["check","--index"],2);
+    assert_eq!(error["code"],"RESOURCE_LIMIT");
+    assert_eq!(error["category"],"resource");
 }

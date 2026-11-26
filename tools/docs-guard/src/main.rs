@@ -200,7 +200,7 @@ fn inventory(root: &Path, commit: Option<&str>) -> Result<Inventory> {
 }
 fn blob(root: &Path, inv: &Inventory, path: &str) -> Result<Vec<u8>> {
     let entry = inv.get(path).filter(|e| e.regular()).ok_or_else(|| GuardError::new(Code::InvalidSnapshot,format!("missing regular tracked file: {path}")))?;
-    git(root, &["cat-file", "blob", &entry.oid], None)
+    git(root, &["cat-file", "blob", &entry.oid], None).map_err(|e| e.at(path))
 }
 fn within(path: &str, prefix: &str) -> bool {
     prefix == "." || path == prefix || path.strip_prefix(prefix).is_some_and(|rest| rest.starts_with('/'))
@@ -542,7 +542,8 @@ fn check_output_attributes(root: &Path, path: &str) -> Result<()> {
 }
 fn resolve_commit(root: &Path, reference: &str) -> Result<String> {
     let spec = format!("{reference}^{{commit}}");
-    Ok(utf8(git(root,&["rev-parse","--verify","--end-of-options",&spec],None)?)?.trim().to_owned())
+    let raw = git(root,&["rev-parse","--verify","--end-of-options",&spec],None).map_err(|e| if e.code == Code::GitFailed { GuardError::new(Code::InvalidSnapshot,"cannot resolve requested commit").caused_by(e) } else { e })?;
+    Ok(utf8(raw)?.trim().to_owned())
 }
 fn load_config(root: &Path, inv: &Inventory) -> Result<Config> {
     if !inv.get(CONFIG).is_some_and(Entry::regular) { return Err(GuardError::new(Code::ConfigMissing,"missing regular tracked configuration").at(CONFIG)); }
@@ -577,7 +578,7 @@ fn evaluate(root: &Path, commit: Option<&str>, base: Option<&str>, generate: boo
         }
         Some(utf8(git(root,&["hash-object","--stdin"],Some(&bytes))?)?.trim().to_owned())
     } else { None };
-    let config = load_config(root,&inv)?;
+    let config = load_config(root,&inv).map_err(|e| e.operation("load configuration").at(CONFIG))?;
     validate_output_scope(&config,&inv)?;
     let mut findings = Vec::new();
     if !generate && !plan && base.is_none() && !config.change_rules.is_empty() {
@@ -587,7 +588,7 @@ fn evaluate(root: &Path, commit: Option<&str>, base: Option<&str>, generate: boo
         let target = match commit { Some(sha) => sha.to_owned(), None => resolve_commit(root,"HEAD")? };
         if commit.is_some() && base_sha == target { return Err(GuardError::new(Code::ComparisonBase,"comparison base must precede the candidate commit")); }
         git(root,&["merge-base","--is-ancestor",base_sha,&target],None)
-            .map_err(|e| if e.code == Code::GitFailed { GuardError::new(Code::ComparisonBase,"comparison base must be an ancestor of target HEAD").caused_by(e) } else { e })?;
+            .map_err(|e| if e.code == Code::GitFailed && e.git_exit_code == Some(1) { GuardError::new(Code::ComparisonBase,"comparison base must be an ancestor of target HEAD").caused_by(e) } else { e })?;
         let previous = inventory(root,Some(base_sha))?;
         audit_change_rules(&inv,&previous,&config,&config,&mut findings);
         // A changed or deleted rule cannot silently weaken the existing base policy.
@@ -727,7 +728,7 @@ fn run(cli: &Cli) -> Result<u8> {
             let path = safe_output(&root,CONFIG)?;
             if path.exists() { return Err(GuardError::new(Code::ConfigExists,"configuration already exists; refusing overwrite")); }
             write_output(&path,include_bytes!("../examples/docs-guard.toml"),false).map_err(|e| e.writes(&[],Some(CONFIG)))?;
-            emit(cli.json,&serde_json::json!({"schema_version":1,"version":env!("CARGO_PKG_VERSION"),"outcome":"CONFIG_CREATED_NOT_CHECKED","path":CONFIG}),&format!("Created {CONFIG}; adapt identity and roles, create missing curated docs, stage inputs."))?;
+            emit(cli.json,&serde_json::json!({"schema_version":1,"version":env!("CARGO_PKG_VERSION"),"outcome":"CONFIG_CREATED_NOT_CHECKED","path":CONFIG}),&format!("Created {CONFIG}; adapt identity and roles, create missing curated docs, stage inputs.")).map_err(|e| e.writes(&[CONFIG.to_owned()],None))?;
             return Ok(0);
         },
         Action::Doctor => {
@@ -743,14 +744,15 @@ fn run(cli: &Cli) -> Result<u8> {
             evaluate(&root,sha.as_deref(),comparison.as_deref(),false,false,Adoption::default())?
         }
     };
+    let completed = if report.outcome == "GENERATED_NOT_CHECKED" { report.changed_outputs.as_slice() } else { &[] };
     if cli.json {
-        emit(true,&serde_json::to_value(&report).map_err(|e| GuardError::new(Code::Serialization,"could not serialize report").caused_by(e))?,"")?;
+        emit(true,&serde_json::to_value(&report).map_err(|e| GuardError::new(Code::Serialization,"could not serialize report").caused_by(e).writes(completed,None))?,"").map_err(|e| e.writes(completed,None))?;
     } else {
         let mut out = format!("DOCS_GUARD_{} snapshot={} tracked={} documents={}",report.outcome,report.snapshot,report.tracked_files,report.documents);
         if let Some(base) = &report.comparison_base { out.push_str(&format!("\nCOMPARISON_BASE {base}")); }
         for p in &report.changed_outputs { out.push_str(&format!("\nOUTPUT_CHANGE {p}")); }
         for p in &report.legacy_adoptions { out.push_str(&format!("\nLEGACY_ADOPTION {p}")); }
-        emit(false,&serde_json::Value::Null,&out)?;
+        emit(false,&serde_json::Value::Null,&out).map_err(|e| e.writes(completed,None))?;
         let mut stderr = std::io::stderr().lock();
         for f in &report.findings { writeln!(stderr,"{} {}: {}",f.code,f.path,f.detail.escape_debug()).map_err(|e| GuardError::io(Code::OutputStream,"stderr",None,e))?; }
         stderr.flush().map_err(|e| GuardError::io(Code::OutputStream,"stderr",None,e))?;
@@ -768,6 +770,11 @@ fn main() -> ExitCode {
     let code = match run(&cli) {
         Ok(code) => code,
         Err(e) => {
+            let action = match &cli.command {
+                Action::Init => "init", Action::Doctor => "doctor", Action::Generate { .. } => "generate",
+                Action::Plan { .. } => "plan", Action::Check { .. } => "check", Action::Status { .. } => "status",
+            };
+            let e = e.operation(action);
             // Never append a second JSON object after a failed output write.
             if cli.json && e.code != Code::OutputStream {
                 if let Err(stream) = emit(true,&e.public_json(),"") {
