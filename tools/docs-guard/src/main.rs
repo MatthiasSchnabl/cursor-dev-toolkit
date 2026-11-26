@@ -62,7 +62,7 @@ struct Config {
     link_exclusions: Vec<String>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct Entry {
     mode: String,
     oid: String,
@@ -87,6 +87,7 @@ struct Report {
     tracked_files: usize,
     documents: usize,
     findings: Vec<Finding>,
+    changed_outputs: Vec<String>,
     outcome: &'static str,
 }
 fn finding(code: &'static str, path: &str, detail: impl Into<String>) -> Finding {
@@ -169,7 +170,7 @@ impl Config {
         Ok(roles)
     }
     fn validate(&self) -> Result<()> {
-        if self.schema_version != 1 || self.repository.trim().is_empty() { return Err("unsupported schema or missing repository identity".into()); }
+        if self.schema_version != 1 || (self.repository.trim().is_empty() || self.repository == "replace-with-project-id") { return Err("unsupported schema or missing repository identity".into()); }
         if self.register == self.manifest || self.register == CONFIG || self.manifest == CONFIG {
             return Err("generated paths must be distinct from one another and config".into());
         }
@@ -305,6 +306,15 @@ fn write_output(path: &Path, bytes: &[u8]) -> Result<()> {
 
 fn evaluate(root: &Path, commit: Option<&str>, generate: bool, plan: bool) -> Result<Report> {
     let mut inv = inventory(root,commit)?;
+    let original = inv.clone();
+    let tracked_files = inv.len();
+    let index_identity = if commit.is_none() {
+        let mut bytes = Vec::new();
+        for (p,e) in &inv {
+            bytes.extend_from_slice(format!("{} {}\t{}\n",e.mode,e.oid,p).as_bytes());
+        }
+        Some(utf8(git(root,&["hash-object","--stdin"],Some(&bytes))?)?.trim().to_owned())
+    } else { None };
     let config: Config = toml::from_str(&utf8(blob(root,&inv,CONFIG)?)?).map_err(|e| format!("invalid config: {e}"))?;
     config.validate()?;
     let mut findings = Vec::new();
@@ -338,30 +348,38 @@ fn evaluate(root: &Path, commit: Option<&str>, generate: bool, plan: bool) -> Re
         inv.entry(config.manifest.clone()).or_insert(Entry {mode:"100644".into(),oid:String::new()});
     }
     audit_links(root,&inv,&config,&docs,&mut findings)?;
+    let mut changed_outputs = Vec::new();
     if generate || plan {
         let targets = [(&config.register,&reg),(&config.manifest,&man)];
         for (p, bytes) in &targets {
             let target = safe_output(root,p)?;
+            if !target.exists() { changed_outputs.push((*p).clone()); }
             if target.exists() {
                 let existing = fs::read(&target).map_err(|e| e.to_string())?;
+                if existing != **bytes { changed_outputs.push((*p).clone()); }
                 // Refuse to overwrite edits or pre-existing untracked files.
                 if existing != **bytes && (!inv.get(*p).is_some_and(|e| e.regular() && !e.oid.is_empty()) || blob(root,&inv,p)? != existing) {
                     findings.push(finding("OUTPUT_DIRTY",p,"stage/resolve existing output edits before regeneration"));
                 }
             }
         }
+        if inventory(root,commit)? != original { return Err("Git index changed during evaluation; retry on a stable snapshot".into()); }
         if generate && findings.is_empty() {
-            for (p,bytes) in targets { write_output(&safe_output(root,p)?,bytes)?; }
+            for (p,bytes) in targets {
+                if changed_outputs.contains(p) { write_output(&safe_output(root,p)?,bytes)?; }
+            }
         }
     }
+    if !generate && !plan && inventory(root,commit)? != original { return Err("Git snapshot changed during check".into()); }
     Ok(Report {
         version: env!("CARGO_PKG_VERSION"),
-        snapshot: commit.unwrap_or("INDEX").into(),
+        snapshot: commit.map(str::to_owned).unwrap_or_else(|| format!("INDEX:{}", index_identity.unwrap_or_default())),
         repository: config.repository,
-        tracked_files: inventory(root,commit)?.len(),
+        tracked_files,
         documents: docs.len(),
         outcome: if !findings.is_empty() {"FAIL"} else if generate {"GENERATED_NOT_CHECKED"} else if plan {"PLAN_READY"} else {"PASS"},
         findings,
+        changed_outputs,
     })
 }
 fn run(cli: &Cli) -> Result<i32> {
@@ -396,6 +414,7 @@ fn run(cli: &Cli) -> Result<i32> {
     else {
         println!("DOCS_GUARD_{} snapshot={} tracked={} documents={}",report.outcome,report.snapshot,report.tracked_files,report.documents);
         for f in &report.findings { println!("{} {}: {}",f.code,f.path,f.detail); }
+        for p in &report.changed_outputs { println!("OUTPUT_CHANGE {p}"); }
     }
     Ok(if report.findings.is_empty() {0} else {1})
 }
