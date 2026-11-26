@@ -9,10 +9,10 @@ use std::{
     process::ExitCode,
 };
 
+mod error;
 mod git_process;
+use error::{Code, GuardError, Result};
 use git_process::git;
-
-type Result<T> = std::result::Result<T, String>;
 const CONFIG: &str = "docs-guard.toml";
 const MAX_CONFIG: usize = 256 * 1024;
 const MAX_POLICY_ITEMS: usize = 2048;
@@ -155,11 +155,11 @@ fn finding(code: &'static str, path: &str, detail: impl Into<String>) -> Finding
 }
 
 fn utf8(bytes: Vec<u8>) -> Result<String> {
-    String::from_utf8(bytes).map_err(|e| format!("non-UTF-8 input: {e}"))
+    String::from_utf8(bytes).map_err(|e| GuardError::new(Code::InvalidEncoding,"non-UTF-8 input").caused_by(e))
 }
 fn repo_root(path: &Path) -> Result<PathBuf> {
     let s = utf8(git(path, &["rev-parse", "--show-toplevel"], None)?)?;
-    fs::canonicalize(s.trim_end_matches(['\r', '\n'])).map_err(|e| e.to_string())
+    fs::canonicalize(s.trim_end_matches(['\r', '\n'])).map_err(|e| GuardError::io(Code::FileRead,"canonicalize repository",Some(path),e))
 }
 fn valid_path(path: &str) -> bool {
     !path.is_empty() && !path.contains(['\\', ':']) && !path.chars().any(char::is_control)
@@ -167,7 +167,7 @@ fn valid_path(path: &str) -> bool {
         && Path::new(path).components().all(|c| matches!(c, Component::Normal(_)))
 }
 fn validate_path(path: &str) -> Result<()> {
-    if valid_path(path) { Ok(()) } else { Err(format!("unsupported or unsafe repository path: {path:?}")) }
+    if valid_path(path) { Ok(()) } else { Err(GuardError::new(Code::InvalidPath,format!("unsupported or unsafe repository path: {path:?}"))) }
 }
 fn inventory(root: &Path, commit: Option<&str>) -> Result<Inventory> {
     let raw = if let Some(sha) = commit {
@@ -177,29 +177,29 @@ fn inventory(root: &Path, commit: Option<&str>) -> Result<Inventory> {
     };
     let mut entries = BTreeMap::new();
     for record in raw.split(|b| *b == 0).filter(|b| !b.is_empty()) {
-        let record = std::str::from_utf8(record).map_err(|_| "non-UTF-8 Git path")?;
-        let (meta, path) = record.split_once('\t').ok_or("malformed Git entry")?;
+        let record = std::str::from_utf8(record).map_err(|e| GuardError::new(Code::InvalidEncoding,"non-UTF-8 Git path").caused_by(e))?;
+        let (meta, path) = record.split_once('\t').ok_or_else(|| GuardError::new(Code::InvalidSnapshot,"malformed Git entry"))?;
         validate_path(path)?;
         let fields: Vec<_> = meta.split(' ').collect();
-        if fields.len() != 3 { return Err("malformed Git metadata".into()); }
+        if fields.len() != 3 { return Err(GuardError::new(Code::InvalidSnapshot,"malformed Git metadata")); }
         let oid = if commit.is_some() { fields[2] } else {
-            if fields[2] != "0" { return Err(format!("unmerged index entry: {path}")); }
+            if fields[2] != "0" { return Err(GuardError::new(Code::InvalidSnapshot,format!("unmerged index entry: {path}"))); }
             fields[1]
         };
         if !matches!(oid.len(), 40 | 64) || !oid.bytes().all(|b| b.is_ascii_hexdigit()) || oid.bytes().all(|b| b == b'0') {
-            return Err(format!("invalid object ID: {path}"));
+            return Err(GuardError::new(Code::InvalidSnapshot,format!("invalid object ID: {path}")));
         }
         if !matches!(fields[0],"100644" | "100755" | "120000" | "160000") {
-            return Err(format!("unsupported Git entry mode: {path}: {}",fields[0]));
+            return Err(GuardError::new(Code::InvalidSnapshot,format!("unsupported Git entry mode: {path}: {}",fields[0])));
         }
         if entries.insert(path.into(), Entry { mode: fields[0].into(), oid: oid.into() }).is_some() {
-            return Err(format!("duplicate entry: {path}"));
+            return Err(GuardError::new(Code::InvalidSnapshot,format!("duplicate entry: {path}")));
         }
     }
     Ok(entries)
 }
 fn blob(root: &Path, inv: &Inventory, path: &str) -> Result<Vec<u8>> {
-    let entry = inv.get(path).filter(|e| e.regular()).ok_or_else(|| format!("missing regular tracked file: {path}"))?;
+    let entry = inv.get(path).filter(|e| e.regular()).ok_or_else(|| GuardError::new(Code::InvalidSnapshot,format!("missing regular tracked file: {path}")))?;
     git(root, &["cat-file", "blob", &entry.oid], None)
 }
 fn within(path: &str, prefix: &str) -> bool {
@@ -217,49 +217,49 @@ impl Config {
         roles
     }
     fn validate(&self) -> Result<()> {
-        if self.schema_version != 1 || (self.repository.trim().is_empty() || self.repository == "replace-with-project-id") { return Err("unsupported schema or missing repository identity".into()); }
+        if self.schema_version != 1 || (self.repository.trim().is_empty() || self.repository == "replace-with-project-id") { return Err(GuardError::new(Code::ConfigInvalid,"unsupported schema or missing repository identity")); }
         let reg = self.register.to_lowercase();
         let man = self.manifest.to_lowercase();
         if within(&reg,&man) || within(&man,&reg) || within(&reg,CONFIG) || within(&man,CONFIG) {
-            return Err("generated paths must be distinct from one another and config".into());
+            return Err(GuardError::new(Code::ConfigInvalid,"generated paths must be distinct from one another and config"));
         }
         for p in [&self.register, &self.manifest].into_iter().chain(self.exclude_document_roots.iter()).chain(self.roles.values()).chain(self.extra_required.iter()).chain(self.optional_documents.iter()).chain(self.link_exclusions.iter()) {
             validate_path(p)?;
         }
         for p in [&self.register,&self.manifest] {
             if !p.is_ascii() || !p.split('/').all(portable_output_component) {
-                return Err(format!("generated paths require portable ASCII components: {p}"));
+                return Err(GuardError::new(Code::ConfigInvalid,format!("generated paths require portable ASCII components: {p}")));
             }
         }
         let policy_items = self.document_roots.len() + self.document_extensions.len() + self.exclude_document_roots.len() +
             self.roles.len() + self.extra_required.len() + self.optional_documents.len() + self.link_exclusions.len() +
             self.change_rules.iter().map(|r| 1 + r.watch.len() + r.require.len() + (if r.review_document.is_some() { 1 } else { 0 })).sum::<usize>();
-        if policy_items > MAX_POLICY_ITEMS { return Err("configuration policy item limit exceeded".into()); }
+        if policy_items > MAX_POLICY_ITEMS { return Err(GuardError::new(Code::ResourceLimit,"configuration policy item limit exceeded")); }
         for p in &self.document_roots {
             if p != "." { validate_path(p)?; }
         }
         if self.roles.values().chain(self.extra_required.iter()).any(|p| self.exclude_document_roots.iter().any(|r| within(p,r)) || self.link_exclusions.iter().any(|r| within(p,r))) {
-            return Err("required documentation cannot be excluded from the document register or link audit".into());
+            return Err(GuardError::new(Code::ConfigInvalid,"required documentation cannot be excluded from the document register or link audit"));
         }
         if self.document_roots.is_empty() || self.document_extensions.is_empty() ||
             self.document_extensions.iter().any(|e| e.is_empty() || !e.bytes().all(|b| b.is_ascii_alphanumeric())) {
-            return Err("document roots and alphanumeric extensions required".into());
+            return Err(GuardError::new(Code::ConfigInvalid,"document roots and alphanumeric extensions required"));
         }
         for role in self.required_roles() {
-            if !self.roles.contains_key(role) { return Err(format!("profile requires role: {role}")); }
+            if !self.roles.contains_key(role) { return Err(GuardError::new(Code::ConfigInvalid,format!("profile requires role: {role}"))); }
         }
         if self.roles.values().chain(self.extra_required.iter()).chain(self.optional_documents.iter()).any(|p| p.to_lowercase() == reg || p.to_lowercase() == man || p.eq_ignore_ascii_case(CONFIG)) {
-            return Err("generated files cannot fulfill curated documentation requirements".into());
+            return Err(GuardError::new(Code::ConfigInvalid,"generated files cannot fulfill curated documentation requirements"));
         }
         let mut ids = BTreeSet::new();
         for rule in &self.change_rules {
             if rule.id.trim().is_empty() || !ids.insert(&rule.id) || rule.watch.is_empty() || rule.require.is_empty() {
-                return Err("change rules require a unique nonempty ID, watch and require paths".into());
+                return Err(GuardError::new(Code::ConfigInvalid,"change rules require a unique nonempty ID, watch and require paths"));
             }
             for p in &rule.watch {
                 validate_path(p)?;
                 if within(&self.register,p) || within(&self.manifest,p) || within(CONFIG,p) {
-                    return Err(format!("change rule {} watches generated files or configuration",rule.id));
+                    return Err(GuardError::new(Code::ConfigInvalid,format!("change rule {} watches generated files or configuration",rule.id)));
                 }
             }
             for p in rule.require.iter().chain(rule.review_document.iter()) {
@@ -269,7 +269,7 @@ impl Config {
                     self.exclude_document_roots.iter().any(|prefix| within(p,prefix)) ||
                     self.link_exclusions.iter().any(|prefix| within(p,prefix)) ||
                     !self.roles.values().chain(self.extra_required.iter()).chain(self.optional_documents.iter()).any(|d| d == p) {
-                    return Err(format!("change rule {} targets must be declared curated documents outside watched paths",rule.id));
+                    return Err(GuardError::new(Code::ConfigInvalid,format!("change rule {} targets must be declared curated documents outside watched paths",rule.id)));
                 }
             }
         }
@@ -375,18 +375,18 @@ fn resolve_link(source: &str, target: &str) -> Result<Option<String>> {
     let before_fragment = target.split(['#','?']).next().unwrap_or("");
     if before_fragment.is_empty() { return Ok(None); }
     if before_fragment.split('/').next().is_some_and(|s| s.contains(':')) {
-        if before_fragment.to_ascii_lowercase().starts_with("file:") || before_fragment.as_bytes().get(1) == Some(&b':') { return Err("file URI is not repository-relative".into()); }
+        if before_fragment.to_ascii_lowercase().starts_with("file:") || before_fragment.as_bytes().get(1) == Some(&b':') { return Err(GuardError::new(Code::InvalidLink,"file URI is not repository-relative")); }
         return Ok(None);
     }
-    let decoded = percent_decode_str(before_fragment).decode_utf8().map_err(|_| "invalid link encoding")?;
-    if decoded.contains(['\\', '\0', ':']) { return Err("unsafe link path".into()); }
+    let decoded = percent_decode_str(before_fragment).decode_utf8().map_err(|e| GuardError::new(Code::InvalidLink,"invalid link encoding").caused_by(e))?;
+    if decoded.contains(['\\', '\0', ':']) { return Err(GuardError::new(Code::InvalidLink,"unsafe link path")); }
     let mut parts: Vec<&str> = if decoded.starts_with('/') { Vec::new() } else {
         source.rsplit_once('/').map(|(dir,_)| dir.split('/').collect()).unwrap_or_default()
     };
     for segment in decoded.split('/') {
         match segment {
             "" | "." => (),
-            ".." => { if parts.pop().is_none() { return Err("link escapes repository".into()); } },
+            ".." => { if parts.pop().is_none() { return Err(GuardError::new(Code::InvalidLink,"link escapes repository")); } },
             _ => parts.push(segment),
         }
     }
@@ -403,7 +403,7 @@ fn audit_links(root: &Path, inv: &Inventory, config: &Config, docs: &[String], f
     for path in docs {
         if !path.to_ascii_lowercase().ends_with(".md") || config.link_exclusions.iter().any(|p| within(path,p)) { continue; }
         let bytes = blob(root,inv,path)?;
-        if bytes.len() > MAX_MARKDOWN { return Err(format!("Markdown exceeds audit size limit: {path}")); }
+        if bytes.len() > MAX_MARKDOWN { return Err(GuardError::new(Code::ResourceLimit,format!("Markdown exceeds audit size limit: {path}"))); }
         let content = utf8(bytes)?;
         let newlines: Vec<_> = content.match_indices('\n').map(|(i,_)| i).collect();
         for (event, range) in Markdown::new(&content).into_offset_iter() {
@@ -412,11 +412,11 @@ fn audit_links(root: &Path, inv: &Inventory, config: &Config, docs: &[String], f
                 match resolve_link(path,&dest_url) {
                     Ok(None) => (),
                     Ok(Some(p)) if p.is_empty() || inv.get(&p).is_some_and(Entry::regular) || (!inv.contains_key(&p) && directories.contains(p.as_str())) => (),
-                    Ok(Some(p)) if inv.contains_key(&p) => findings.push(finding("UNSUPPORTED_LINK_TARGET",path,format!("line {line}: {dest_url} -> {p} (symlink or submodule)"))),
-                    Ok(Some(p)) => findings.push(finding("BROKEN_LINK",path,format!("line {line}: {dest_url} -> {p}"))),
-                    Err(e) => findings.push(finding("UNSAFE_LINK",path,format!("line {line}: {dest_url}: {e}"))),
+                    Ok(Some(p)) if inv.contains_key(&p) => findings.push(finding("UNSUPPORTED_LINK_TARGET",path,format!("line {line}: {p} (symlink or submodule)"))),
+                    Ok(Some(p)) => findings.push(finding("BROKEN_LINK",path,format!("line {line}: {p}"))),
+                    Err(e) => findings.push(finding("UNSAFE_LINK",path,format!("line {line}: {e}"))),
                 }
-                if findings.len() > MAX_FINDINGS { return Err("finding limit exceeded; narrow audit scope or resolve existing errors".into()); }
+                if findings.len() > MAX_FINDINGS { return Err(GuardError::new(Code::ResourceLimit,"finding limit exceeded; narrow audit scope or resolve existing errors")); }
             }
         }
     }
@@ -441,9 +441,9 @@ fn redirected_file(metadata: &fs::Metadata) -> bool {
 }
 fn read_worktree_bounded(path: &Path) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
-    fs::File::open(path).map_err(|e| e.to_string())?.take((MAX_OUTPUT_FILE + 1) as u64)
-        .read_to_end(&mut bytes).map_err(|e| e.to_string())?;
-    if bytes.len() > MAX_OUTPUT_FILE { return Err(format!("output exceeds size limit: {}",path.display())); }
+    fs::File::open(path).map_err(|e| GuardError::io(Code::FileRead,"open output",Some(path),e))?.take((MAX_OUTPUT_FILE + 1) as u64)
+        .read_to_end(&mut bytes).map_err(|e| GuardError::io(Code::FileRead,"read output",Some(path),e))?;
+    if bytes.len() > MAX_OUTPUT_FILE { return Err(GuardError::new(Code::ResourceLimit,format!("output exceeds size limit: {}",path.display()))); }
     Ok(bytes)
 }
 fn safe_output(root: &Path, relative: &str) -> Result<PathBuf> {
@@ -451,32 +451,32 @@ fn safe_output(root: &Path, relative: &str) -> Result<PathBuf> {
     let mut path = root.to_path_buf();
     let pieces: Vec<_> = relative.split('/').collect();
     for (i, part) in pieces.iter().enumerate() {
-        if !portable_output_component(part) { return Err(format!("nonportable output path: {relative}")); }
+        if !portable_output_component(part) { return Err(GuardError::new(Code::OutputScope,format!("nonportable output path: {relative}"))); }
         if path.is_dir() {
-            for entry in fs::read_dir(&path).map_err(|e| e.to_string())? {
-                let name = entry.map_err(|e| e.to_string())?.file_name();
+            for entry in fs::read_dir(&path).map_err(|e| GuardError::io(Code::FileRead,"read output directory",Some(&path),e))? {
+                let name = entry.map_err(|e| GuardError::io(Code::FileRead,"read directory entry",Some(&path),e))?.file_name();
                 let name = name.to_string_lossy();
                 if name.to_lowercase() == part.to_lowercase() && name.as_ref() != *part {
-                    return Err(format!("case-alias output path refused: {relative}"));
+                    return Err(GuardError::new(Code::OutputScope,format!("case-alias output path refused: {relative}")));
                 }
             }
         }
         path.push(part);
         match fs::symlink_metadata(&path) {
-            Ok(m) if redirected_file(&m) => return Err(format!("redirected output path refused: {}",path.display())),
-            Ok(m) if i+1 < pieces.len() && !m.is_dir() => return Err(format!("not a directory: {}",path.display())),
-            Ok(m) if i+1 == pieces.len() && !m.is_file() => return Err(format!("not a regular file: {}",path.display())),
+            Ok(m) if redirected_file(&m) => return Err(GuardError::new(Code::OutputScope,format!("redirected output path refused: {}",path.display()))),
+            Ok(m) if i+1 < pieces.len() && !m.is_dir() => return Err(GuardError::new(Code::OutputScope,format!("not a directory: {}",path.display()))),
+            Ok(m) if i+1 == pieces.len() && !m.is_file() => return Err(GuardError::new(Code::OutputScope,format!("not a regular file: {}",path.display()))),
             Ok(m) => {
                 if m.is_dir() && i+1 < pieces.len() {
                     match fs::symlink_metadata(path.join(".git")) {
-                        Ok(_) => return Err(format!("nested repository output refused: {relative}")),
+                        Ok(_) => return Err(GuardError::new(Code::OutputScope,format!("nested repository output refused: {relative}"))),
                         Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
-                        Err(e) => return Err(e.to_string()),
+                        Err(e) => return Err(GuardError::io(Code::FileRead,"inspect output path",Some(&path),e)),
                     }
                 }
             },
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
-            Err(e) => return Err(e.to_string()),
+            Err(e) => return Err(GuardError::io(Code::FileRead,"inspect output path",Some(&path),e)),
         }
     }
     Ok(path)
@@ -488,29 +488,29 @@ fn validate_output_scope(config: &Config, inv: &Inventory) -> Result<()> {
             let other = path.to_lowercase();
             for (a,b) in target.split('/').zip(path.split('/')) {
                 if a.to_lowercase() != b.to_lowercase() { break; }
-                if a != b { return Err(format!("generated path has a case-aliased tracked component: {target} / {path}")); }
+                if a != b { return Err(GuardError::new(Code::OutputScope,format!("generated path has a case-aliased tracked component: {target} / {path}"))); }
             }
             if path == target {
-                if !entry.regular() { return Err(format!("nonregular tracked output: {target}")); }
+                if !entry.regular() { return Err(GuardError::new(Code::OutputScope,format!("nonregular tracked output: {target}"))); }
             } else if within(&folded,&other) || within(&other,&folded) {
-                return Err(format!("generated path collides with tracked path: {target} / {path}"));
+                return Err(GuardError::new(Code::OutputScope,format!("generated path collides with tracked path: {target} / {path}")));
             }
         }
     }
     Ok(())
 }
 fn write_output(path: &Path, bytes: &[u8], existing: bool) -> Result<()> {
-    let parent = path.parent().ok_or("missing parent")?;
-    fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    let parent = path.parent().ok_or_else(|| GuardError::new(Code::FileWrite,"missing parent"))?;
+    fs::create_dir_all(parent).map_err(|e| GuardError::io(Code::FileWrite,"create output directory",Some(parent),e))?;
     // Same-directory temporary file: no truncation of the existing target on write failure.
-    let mut file = tempfile::NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
-    file.write_all(bytes).map_err(|e| e.to_string())?;
+    let mut file = tempfile::NamedTempFile::new_in(parent).map_err(|e| GuardError::io(Code::FileWrite,"create temporary output",Some(path),e))?;
+    file.write_all(bytes).map_err(|e| GuardError::io(Code::FileWrite,"write temporary output",Some(path),e))?;
     if existing {
-        file.as_file().set_permissions(fs::metadata(path).map_err(|e| e.to_string())?.permissions()).map_err(|e| e.to_string())?;
+        file.as_file().set_permissions(fs::metadata(path).map_err(|e| GuardError::io(Code::FileRead,"read output permissions",Some(path),e))?.permissions()).map_err(|e| GuardError::io(Code::FileWrite,"set output permissions",Some(path),e))?;
     }
-    file.as_file().sync_all().map_err(|e| e.to_string())?;
-    if existing { file.persist(path).map_err(|e| e.to_string())?; }
-    else { file.persist_noclobber(path).map_err(|e| e.to_string())?; }
+    file.as_file().sync_all().map_err(|e| GuardError::io(Code::FileWrite,"sync temporary output",Some(path),e))?;
+    if existing { file.persist(path).map_err(|e| GuardError::io(Code::FileWrite,"replace output",Some(path),e.error))?; }
+    else { file.persist_noclobber(path).map_err(|e| GuardError::io(Code::FileWrite,"publish new output",Some(path),e.error))?; }
     Ok(())
 }
 fn owned_output(path: &str, config: &Config, content: &[u8]) -> bool {
@@ -526,16 +526,16 @@ struct Adoption<'a> {
 fn check_output_attributes(root: &Path, path: &str) -> Result<()> {
     let bytes = git(root, &["check-attr","--cached","-z","filter","working-tree-encoding","ident","eol","--",path],None)?;
     let live = git(root, &["check-attr","-z","filter","working-tree-encoding","ident","eol","--",path],None)?;
-    if live != bytes { return Err(format!("staged and worktree Git attributes differ: {path}")); }
+    if live != bytes { return Err(GuardError::new(Code::UnsupportedAttribute,format!("staged and worktree Git attributes differ: {path}"))); }
     let fields: Vec<_> = bytes.split(|b| *b == 0).collect();
     if fields.len() != 13 || fields[12] != b"" {
-        return Err(format!("unexpected Git attribute response: {path}"));
+        return Err(GuardError::new(Code::UnsupportedAttribute,format!("unexpected Git attribute response: {path}")));
     }
     for triple in fields[..12].chunks_exact(3) {
-        let name = std::str::from_utf8(triple[1]).map_err(|_| "invalid attribute name")?;
-        let value = std::str::from_utf8(triple[2]).map_err(|_| "invalid attribute value")?;
+        let name = std::str::from_utf8(triple[1]).map_err(|e| GuardError::new(Code::GitProtocol,"invalid attribute name").caused_by(e))?;
+        let value = std::str::from_utf8(triple[2]).map_err(|e| GuardError::new(Code::GitProtocol,"invalid attribute value").caused_by(e))?;
         if triple[0] != path.as_bytes() || !(matches!(value,"unspecified" | "unset") || (name == "eol" && value == "lf")) {
-            return Err(format!("unsupported generated-output attribute: {path}: {name}={value}"));
+            return Err(GuardError::new(Code::UnsupportedAttribute,format!("unsupported generated-output attribute: {path}: {name}")));
         }
     }
     Ok(())
@@ -545,9 +545,10 @@ fn resolve_commit(root: &Path, reference: &str) -> Result<String> {
     Ok(utf8(git(root,&["rev-parse","--verify","--end-of-options",&spec],None)?)?.trim().to_owned())
 }
 fn load_config(root: &Path, inv: &Inventory) -> Result<Config> {
+    if !inv.get(CONFIG).is_some_and(Entry::regular) { return Err(GuardError::new(Code::ConfigMissing,"missing regular tracked configuration").at(CONFIG)); }
     let bytes = blob(root,inv,CONFIG)?;
-    if bytes.len() > MAX_CONFIG { return Err("configuration exceeds size limit".into()); }
-    let config: Config = toml::from_str(&utf8(bytes)?).map_err(|_| "invalid config; inspect local configuration")?;
+    if bytes.len() > MAX_CONFIG { return Err(GuardError::new(Code::ResourceLimit,"configuration exceeds size limit")); }
+    let config: Config = toml::from_str(&utf8(bytes)?).map_err(|e| GuardError::new(Code::ConfigInvalid,"invalid config; inspect local configuration").at(CONFIG).caused_by(e))?;
     config.validate()?;
     Ok(config)
 }
@@ -580,13 +581,13 @@ fn evaluate(root: &Path, commit: Option<&str>, base: Option<&str>, generate: boo
     validate_output_scope(&config,&inv)?;
     let mut findings = Vec::new();
     if !generate && !plan && base.is_none() && !config.change_rules.is_empty() {
-        return Err("configured change rules require --base with a trusted comparison commit".into());
+        return Err(GuardError::new(Code::ComparisonBase,"configured change rules require --base with a trusted comparison commit"));
     }
     if let Some(base_sha) = base {
         let target = match commit { Some(sha) => sha.to_owned(), None => resolve_commit(root,"HEAD")? };
-        if commit.is_some() && base_sha == target { return Err("comparison base must precede the candidate commit".into()); }
+        if commit.is_some() && base_sha == target { return Err(GuardError::new(Code::ComparisonBase,"comparison base must precede the candidate commit")); }
         git(root,&["merge-base","--is-ancestor",base_sha,&target],None)
-            .map_err(|e| format!("comparison base must be an ancestor of target HEAD: {e}"))?;
+            .map_err(|e| if e.code == Code::GitFailed { GuardError::new(Code::ComparisonBase,"comparison base must be an ancestor of target HEAD").caused_by(e) } else { e })?;
         let previous = inventory(root,Some(base_sha))?;
         audit_change_rules(&inv,&previous,&config,&config,&mut findings);
         // A changed or deleted rule cannot silently weaken the existing base policy.
@@ -603,7 +604,7 @@ fn evaluate(root: &Path, commit: Option<&str>, base: Option<&str>, generate: boo
     }
     let docs = config.documents(&inv);
     let reg = register(&config,&docs);
-    if reg.len() > MAX_OUTPUT_FILE { return Err("generated register exceeds size limit".into()); }
+    if reg.len() > MAX_OUTPUT_FILE { return Err(GuardError::new(Code::ResourceLimit,"generated register exceeds size limit")); }
     let reg_oid = utf8(git(root,&["hash-object","--stdin"],Some(&reg))?)?.trim().to_string();
     let reg_mode = inv.get(&config.register).map(|e| e.mode.clone()).unwrap_or_else(|| "100644".into());
     if reg_mode != "100644" { findings.push(finding("OUTPUT_MODE",&config.register,"generated register must be mode 100644")); }
@@ -613,7 +614,7 @@ fn evaluate(root: &Path, commit: Option<&str>, base: Option<&str>, generate: boo
     let mut expected = inv.clone();
     expected.insert(config.register.clone(),Entry {mode:"100644".into(),oid:reg_oid});
     let man = manifest(&config,&expected);
-    if reg.len() > MAX_OUTPUT_FILE || man.len() > MAX_OUTPUT_FILE { return Err("generated artifact exceeds size limit".into()); }
+    if reg.len() > MAX_OUTPUT_FILE || man.len() > MAX_OUTPUT_FILE { return Err(GuardError::new(Code::ResourceLimit,"generated artifact exceeds size limit")); }
     for (p, bytes) in [(&config.register,&reg),(&config.manifest,&man)] {
         if !generate && !plan && !inv.get(p).is_some_and(Entry::regular) {
             findings.push(finding("MISSING_GENERATED",p,"run generate and stage output"));
@@ -672,23 +673,29 @@ fn evaluate(root: &Path, commit: Option<&str>, base: Option<&str>, generate: boo
                 }
             }
         }
-        if inventory(root,commit)? != original { return Err("Git index changed during evaluation; retry on a stable snapshot".into()); }
+        if inventory(root,commit)? != original { return Err(GuardError::new(Code::SnapshotChanged,"Git index changed during evaluation; retry on a stable snapshot")); }
         if generate && findings.is_empty() {
+            let mut written = Vec::new();
             for (p,bytes) in targets {
                 if changed_outputs.contains(p) {
-                    let path = safe_output(root,p)?;
-                    check_output_attributes(root,p)?;
-                    if inventory(root,commit)? != original { return Err("Git index changed before output replacement".into()); }
-                    let prior = observed.get(p).ok_or("missing output observation")?;
-                    let now = if path.exists() { Some(read_worktree_bounded(&path)?) } else { None };
-                    if &now != prior { return Err(format!("output changed after preflight: {p}")); }
-                    write_output(&path,bytes,prior.is_some())?;
+                    let preflight = (|| -> Result<PathBuf> {
+                        let path = safe_output(root,p)?;
+                        check_output_attributes(root,p)?;
+                        if inventory(root,commit)? != original { return Err(GuardError::new(Code::SnapshotChanged,"Git index changed before output replacement")); }
+                        let prior = observed.get(p).ok_or_else(|| GuardError::new(Code::Internal,"missing output observation"))?;
+                        let now = if path.exists() { Some(read_worktree_bounded(&path)?) } else { None };
+                        if &now != prior { return Err(GuardError::new(Code::OutputChanged,"output changed after preflight").at(p)); }
+                        Ok(path)
+                    })().map_err(|e| e.writes(&written,None))?;
+                    write_output(&preflight,bytes,observed.get(p).is_some_and(Option::is_some))
+                        .map_err(|e| e.writes(&written,Some(p)))?;
+                    written.push(p.clone());
                 }
             }
         }
     }
-    if !generate && !plan && inventory(root,commit)? != original { return Err("Git snapshot changed during check".into()); }
-    if findings.len() > MAX_FINDINGS { return Err("finding limit exceeded".into()); }
+    if !generate && !plan && inventory(root,commit)? != original { return Err(GuardError::new(Code::SnapshotChanged,"Git snapshot changed during check")); }
+    if findings.len() > MAX_FINDINGS { return Err(GuardError::new(Code::ResourceLimit,"finding limit exceeded")); }
     findings.sort_by(|a,b| (a.code,&a.path,&a.detail).cmp(&(b.code,&b.path,&b.detail)));
     findings.dedup_by(|a,b| a.code == b.code && a.path == b.path && a.detail == b.detail);
     Ok(Report {
@@ -708,24 +715,24 @@ fn evaluate(root: &Path, commit: Option<&str>, base: Option<&str>, generate: boo
 }
 fn emit(json: bool, value: &serde_json::Value, human: &str) -> Result<()> {
     let mut stdout = std::io::stdout().lock();
-    if json { serde_json::to_writer_pretty(&mut stdout,value).map_err(|e| e.to_string())?; }
-    else { stdout.write_all(human.as_bytes()).map_err(|e| e.to_string())?; }
-    stdout.write_all(b"\n").map_err(|e| e.to_string())?;
-    stdout.flush().map_err(|e| e.to_string())
+    if json { serde_json::to_writer_pretty(&mut stdout,value).map_err(|e| GuardError::new(Code::OutputStream,"could not write JSON response").operation("stdout").caused_by(e))?; }
+    else { stdout.write_all(human.as_bytes()).map_err(|e| GuardError::io(Code::OutputStream,"stdout",None,e))?; }
+    stdout.write_all(b"\n").map_err(|e| GuardError::io(Code::OutputStream,"stdout",None,e))?;
+    stdout.flush().map_err(|e| GuardError::io(Code::OutputStream,"stdout",None,e))
 }
 fn run(cli: &Cli) -> Result<u8> {
     let root = repo_root(&cli.root)?;
     let report = match &cli.command {
         Action::Init => {
             let path = safe_output(&root,CONFIG)?;
-            if path.exists() { return Err("configuration already exists; refusing overwrite".into()); }
-            write_output(&path,include_bytes!("../examples/docs-guard.toml"),false)?;
-            if emit(cli.json,&serde_json::json!({"schema_version":1,"version":env!("CARGO_PKG_VERSION"),"outcome":"CONFIG_CREATED_NOT_CHECKED","path":CONFIG}),&format!("Created {CONFIG}; adapt identity and roles, create missing curated docs, stage inputs.")).is_err() { return Ok(2); }
+            if path.exists() { return Err(GuardError::new(Code::ConfigExists,"configuration already exists; refusing overwrite")); }
+            write_output(&path,include_bytes!("../examples/docs-guard.toml"),false).map_err(|e| e.writes(&[],Some(CONFIG)))?;
+            emit(cli.json,&serde_json::json!({"schema_version":1,"version":env!("CARGO_PKG_VERSION"),"outcome":"CONFIG_CREATED_NOT_CHECKED","path":CONFIG}),&format!("Created {CONFIG}; adapt identity and roles, create missing curated docs, stage inputs."))?;
             return Ok(0);
         },
         Action::Doctor => {
             let version = utf8(git(&root,&["--version"],None)?)?;
-            if emit(cli.json,&serde_json::json!({"schema_version":1,"outcome":"DIAGNOSTIC","git":version.trim(),"root":root,"version":env!("CARGO_PKG_VERSION")}),&format!("docs-guard {} | {} | {}",env!("CARGO_PKG_VERSION"),version.trim(),root.display())).is_err() { return Ok(2); }
+            emit(cli.json,&serde_json::json!({"schema_version":1,"outcome":"DIAGNOSTIC","git":version.trim(),"root":root,"version":env!("CARGO_PKG_VERSION")}),&format!("docs-guard {} | {} | {}",env!("CARGO_PKG_VERSION"),version.trim(),root.display()))?;
             return Ok(0);
         },
         Action::Generate {adopt_register,adopt_manifest} => evaluate(&root,None,None,true,false,Adoption {register:adopt_register.as_deref(),manifest:adopt_manifest.as_deref()})?,
@@ -737,7 +744,7 @@ fn run(cli: &Cli) -> Result<u8> {
         }
     };
     if cli.json {
-        if emit(true,&serde_json::to_value(&report).map_err(|e| e.to_string())?,"").is_err() { return Ok(2); }
+        emit(true,&serde_json::to_value(&report).map_err(|e| GuardError::new(Code::Serialization,"could not serialize report").caused_by(e))?,"")?;
     } else {
         let mut out = format!("DOCS_GUARD_{} snapshot={} tracked={} documents={}",report.outcome,report.snapshot,report.tracked_files,report.documents);
         if let Some(base) = &report.comparison_base { out.push_str(&format!("\nCOMPARISON_BASE {base}")); }
@@ -745,8 +752,8 @@ fn run(cli: &Cli) -> Result<u8> {
         for p in &report.legacy_adoptions { out.push_str(&format!("\nLEGACY_ADOPTION {p}")); }
         emit(false,&serde_json::Value::Null,&out)?;
         let mut stderr = std::io::stderr().lock();
-        for f in &report.findings { writeln!(stderr,"{} {}: {}",f.code,f.path,f.detail.escape_debug()).map_err(|e| e.to_string())?; }
-        stderr.flush().map_err(|e| e.to_string())?;
+        for f in &report.findings { writeln!(stderr,"{} {}: {}",f.code,f.path,f.detail.escape_debug()).map_err(|e| GuardError::io(Code::OutputStream,"stderr",None,e))?; }
+        stderr.flush().map_err(|e| GuardError::io(Code::OutputStream,"stderr",None,e))?;
     }
     Ok(if report.findings.is_empty() {0} else {1})
 }
@@ -761,11 +768,14 @@ fn main() -> ExitCode {
     let code = match run(&cli) {
         Ok(code) => code,
         Err(e) => {
-            // On an output-stream failure, do not append a second/partial JSON document.
-            // Runtime errors before rendering are still machine-readable.
-            if cli.json {
-                let _ = emit(true,&serde_json::json!({"schema_version":1,"version":env!("CARGO_PKG_VERSION"),"outcome":"ERROR","code":"EXECUTION_ERROR","detail":e}),"");
-            } else { let _ = writeln!(std::io::stderr().lock(),"DOCS_GUARD_ERROR: {}",e.escape_debug()); }
+            // Never append a second JSON object after a failed output write.
+            if cli.json && e.code != Code::OutputStream {
+                if let Err(stream) = emit(true,&e.public_json(),"") {
+                    let _ = writeln!(std::io::stderr().lock(),"DOCS_GUARD_ERROR: {stream}; original={e}");
+                }
+            } else {
+                let _ = writeln!(std::io::stderr().lock(),"DOCS_GUARD_ERROR: {e}");
+            }
             2
         }
     };
