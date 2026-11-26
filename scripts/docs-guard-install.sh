@@ -49,6 +49,7 @@ check_dest() {
     [[ ! -e "$parent" || -d "$parent" ]] || die "not a directory: $parent"
   done
   [[ ! -L "$dest" ]] || die "symlinked installed binary"
+  [[ ! -e "$dest" || -f "$dest" ]] || die "installed binary target is not a regular file"
 }
 verify_binary() {
   [[ -f "$1" && ! -L "$1" ]] || die "missing regular binary: $1"
@@ -61,6 +62,7 @@ case "$1" in
     if [[ -f "$dest" ]]; then verify_binary "$dest"; printf 'status=verified\n'; else printf 'status=not_installed\n'; fi ;;
   verify)
     verify_binary "$dest"
+    [[ -x "$dest" ]] || die "installed binary is not executable"
     printf '%s\n' "$dest" ;;
   install)
     asset="$2"
@@ -78,7 +80,7 @@ case "$1" in
     chmod 755 "$temp"
     # No destructive replacement: an already existing version is immutable.
     # The lock pin also gets rechecked on every verify.
-    if ! ln -- "$temp" "$dest"; then
+    if ! ln -T -- "$temp" "$dest"; then
       die "could not publish immutable binary (existing file or filesystem limitation)"
     fi
     verify_binary "$dest"

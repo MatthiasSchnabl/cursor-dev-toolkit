@@ -463,7 +463,7 @@ fn evaluate(root: &Path, commit: Option<&str>, generate: bool, plan: bool, adopt
                 let existing = fs::read(&target).map_err(|e| e.to_string())?;
                 if existing != **bytes { changed_outputs.push((*p).clone()); }
                 // Refuse to overwrite edits or pre-existing untracked files.
-                if existing != **bytes && (!inv.get(*p).is_some_and(|e| e.regular() && !e.oid.is_empty()) || blob(root,&inv,p)? != existing) {
+                if (requested.is_some() || existing != **bytes) && (!inv.get(*p).is_some_and(|e| e.regular() && !e.oid.is_empty()) || blob(root,&inv,p)? != existing) {
                     findings.push(finding("OUTPUT_DIRTY",p,"stage/resolve existing output edits before regeneration"));
                 }
             }

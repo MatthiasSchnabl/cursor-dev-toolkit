@@ -181,7 +181,7 @@ fn refuses_clean_filter_and_required_exclusion() {
     let result=repo.expect(&["generate"],2);
     assert!(result["detail"].as_str().unwrap().contains("attribute"));
     assert!(!repo.root.join("docs/inventory").exists());
-    repo.git(&["rm",".gitattributes"]);
+    repo.git(&["rm","-f",".gitattributes"]);
     let cfg=include_str!("../examples/docs-guard.toml").replace("replace-with-project-id","fixture")
         .replace("link_exclusions = []","link_exclusions = [\"README.md\"]");
     repo.put("docs-guard.toml",&cfg);
