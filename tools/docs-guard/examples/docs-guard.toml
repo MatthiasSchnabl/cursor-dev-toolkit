@@ -4,10 +4,11 @@ repository = "replace-with-project-id"
 profile = "minimal"
 register = "docs/inventory/DOCUMENT_REGISTER.md"
 manifest = "docs/inventory/FILE_MANIFEST.tsv"
-document_roots = ["docs"]
+document_roots = ["."] # all repository paths; narrow only deliberately
 document_extensions = ["md", "rst", "adoc", "pdf"]
 exclude_document_roots = []
 extra_required = []
+optional_documents = []
 link_exclusions = []
 
 [roles]

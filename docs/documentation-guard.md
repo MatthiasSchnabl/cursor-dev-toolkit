@@ -27,6 +27,14 @@ Minimal: scope, agent rules, index, current status (roadmap, risks, next action)
 Standard adds architecture, decisions (including rejected approaches), verification (evidence), handoff, history (milestones and PR/issue references).
 Production adds operations/deployment. Scientific adds a scientific status role. Both extend standard; they are separate extensions, not cumulative with each other. Roles may share files; map existing paths to avoid migration churn. Additional requirements and document roots are configurable. No private project-specific policy is built in.
 
+## Controlled migration
+
+Prefer parallel derived paths for initial evaluation, leaving the original guard and files intact. Configure existing curated roles without moving documents. The default example discovers configured extensions throughout the repository (`document_roots = ["."]`), including root Markdown and nonstandard documentation directories. Explicit optional documents may be included even outside selected roots/extensions; absence is not an error. Required documents cannot be excluded from the register or link audit.
+
+For an approved in-place cutover, review the two legacy generated files, commit the existing baseline, stage the migration configuration, and obtain each current object ID with `git rev-parse :<path>`. Run `plan --adopt-register <OID> --adopt-manifest <OID>`, review changed outputs and legacy adoptions, then repeat with `generate`. Each supplied object ID must match an unmanaged, regular, tracked output. Dirty or missing worktree targets are refused. Omit adoption flags for an already managed target. Stage and check the generated outputs; retain the old guard until parity and QA approval. Do not pass adoption flags to ordinary generation. On failure review and restore only affected outputs from the preserved baseline before retry; no broad reset.
+
+Generation checks staged Git attributes for filters, working-tree encoding, ident expansion and CRLF output rules before writing. Use LF for generated files. This is a preflight, not proof that the entire live staging environment matches the staged attributes. Links to symlinks and submodule roots are explicitly unsupported rather than certified by their presence.
+
 ## Remaining acceptance gates
 
 1. Resolve/pin dependencies and commit Cargo.lock; run fmt, check, clippy, tests and release build on authorized QA infrastructure.

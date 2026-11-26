@@ -29,9 +29,21 @@ enum Action {
     /// Create a configuration template without overwriting existing files.
     Init,
     /// Regenerate derived files from the staged Git index; never stage them.
-    Generate,
+    Generate {
+        /// Adopt a reviewed legacy register at this exact staged Git object ID.
+        #[arg(long, value_name = "OID")]
+        adopt_register: Option<String>,
+        /// Adopt a reviewed legacy manifest at this exact staged Git object ID.
+        #[arg(long, value_name = "OID")]
+        adopt_manifest: Option<String>,
+    },
     /// Preview generation without writing files.
-    Plan,
+    Plan {
+        #[arg(long, value_name = "OID")]
+        adopt_register: Option<String>,
+        #[arg(long, value_name = "OID")]
+        adopt_manifest: Option<String>,
+    },
     /// Check an immutable commit (HEAD by default) or the staged index.
     Check {
         /// Check staged content rather than a commit.
@@ -73,6 +85,8 @@ struct Config {
     #[serde(default)]
     extra_required: Vec<String>,
     #[serde(default)]
+    optional_documents: Vec<String>,
+    #[serde(default)]
     link_exclusions: Vec<String>,
 }
 
@@ -103,6 +117,7 @@ struct Report {
     documents: usize,
     findings: Vec<Finding>,
     changed_outputs: Vec<String>,
+    legacy_adoptions: Vec<String>,
     outcome: &'static str,
 }
 fn finding(code: &'static str, path: &str, detail: impl Into<String>) -> Finding {
@@ -183,7 +198,7 @@ fn blob(root: &Path, inv: &Inventory, path: &str) -> Result<Vec<u8>> {
     git(root, &["cat-file", "blob", &entry.oid], None)
 }
 fn within(path: &str, prefix: &str) -> bool {
-    path == prefix || path.strip_prefix(prefix).is_some_and(|rest| rest.starts_with('/'))
+    prefix == "." || path == prefix || path.strip_prefix(prefix).is_some_and(|rest| rest.starts_with('/'))
 }
 impl Config {
     fn required_roles(&self) -> Vec<&'static str> {
@@ -201,8 +216,14 @@ impl Config {
         if within(&self.register,&self.manifest) || within(&self.manifest,&self.register) || within(&self.register,CONFIG) || within(&self.manifest,CONFIG) {
             return Err("generated paths must be distinct from one another and config".into());
         }
-        for p in [&self.register, &self.manifest].into_iter().chain(self.document_roots.iter()).chain(self.exclude_document_roots.iter()).chain(self.roles.values()).chain(self.extra_required.iter()).chain(self.link_exclusions.iter()) {
+        for p in [&self.register, &self.manifest].into_iter().chain(self.exclude_document_roots.iter()).chain(self.roles.values()).chain(self.extra_required.iter()).chain(self.optional_documents.iter()).chain(self.link_exclusions.iter()) {
             validate_path(p)?;
+        }
+        for p in &self.document_roots {
+            if p != "." { validate_path(p)?; }
+        }
+        if self.roles.values().chain(self.extra_required.iter()).any(|p| self.exclude_document_roots.iter().any(|r| within(p,r)) || self.link_exclusions.iter().any(|r| within(p,r))) {
+            return Err("required documentation cannot be excluded from the document register or link audit".into());
         }
         if self.document_roots.is_empty() || self.document_extensions.is_empty() ||
             self.document_extensions.iter().any(|e| e.is_empty() || !e.bytes().all(|b| b.is_ascii_alphanumeric())) {
@@ -211,7 +232,7 @@ impl Config {
         for role in self.required_roles() {
             if !self.roles.contains_key(role) { return Err(format!("profile requires role: {role}")); }
         }
-        if self.roles.values().chain(self.extra_required.iter()).any(|p| p == &self.register || p == &self.manifest) {
+        if self.roles.values().chain(self.extra_required.iter()).chain(self.optional_documents.iter()).any(|p| p == &self.register || p == &self.manifest || p == CONFIG) {
             return Err("generated files cannot fulfill curated documentation requirements".into());
         }
         Ok(())
@@ -220,7 +241,7 @@ impl Config {
         inv.iter().filter(|(p,e)| {
             e.regular() && *p != &self.register && *p != &self.manifest
                 && !self.exclude_document_roots.iter().any(|r| within(p,r))
-                && (self.roles.values().any(|r| r == *p) || self.extra_required.contains(p)
+                && (self.roles.values().any(|r| r == *p) || self.extra_required.contains(p) || self.optional_documents.contains(p)
                 || self.document_roots.iter().any(|r| within(p,r)) && p.rsplit_once('.').is_some_and(|(_, ext)| self.document_extensions.iter().any(|e| e.eq_ignore_ascii_case(ext))))
         }).map(|(p,_)| p.clone()).collect()
     }
@@ -272,7 +293,7 @@ fn resolve_link(source: &str, target: &str) -> Result<Option<String>> {
     let before_fragment = target.split(['#','?']).next().unwrap_or("");
     if before_fragment.is_empty() { return Ok(None); }
     if before_fragment.split('/').next().is_some_and(|s| s.contains(':')) {
-        if before_fragment.starts_with("file:") { return Err("file URI is not repository-relative".into()); }
+        if before_fragment.to_ascii_lowercase().starts_with("file:") || before_fragment.as_bytes().get(1) == Some(&b':') { return Err("file URI is not repository-relative".into()); }
         return Ok(None);
     }
     let decoded = percent_decode_str(before_fragment).decode_utf8().map_err(|_| "invalid link encoding")?;
@@ -300,7 +321,8 @@ fn audit_links(root: &Path, inv: &Inventory, config: &Config, docs: &[String], f
             if let Event::Start(Tag::Link {dest_url,..} | Tag::Image {dest_url,..}) = event {
                 match resolve_link(path,&dest_url) {
                     Ok(None) => (),
-                    Ok(Some(p)) if p.is_empty() || inv.contains_key(&p) || inv.keys().any(|key| within(key,&p)) => (),
+                    Ok(Some(p)) if p.is_empty() || inv.get(&p).is_some_and(Entry::regular) || (!inv.contains_key(&p) && inv.keys().any(|key| within(key,&p))) => (),
+                    Ok(Some(p)) if inv.contains_key(&p) => findings.push(finding("UNSUPPORTED_LINK_TARGET",path,format!("byte {}: {dest_url} -> {p} (symlink or submodule)",range.start))),
                     Ok(Some(p)) => findings.push(finding("BROKEN_LINK",path,format!("byte {}: {dest_url} -> {p}",range.start))),
                     Err(e) => findings.push(finding("UNSAFE_LINK",path,format!("byte {}: {dest_url}: {e}",range.start))),
                 }
@@ -345,7 +367,27 @@ fn owned_output(path: &str, config: &Config, content: &[u8]) -> bool {
     else { content.starts_with(b"# docs-guard Git inventory v1; manifest itself excluded\n") }
 }
 
-fn evaluate(root: &Path, commit: Option<&str>, generate: bool, plan: bool) -> Result<Report> {
+#[derive(Default)]
+struct Adoption<'a> {
+    register: Option<&'a str>,
+    manifest: Option<&'a str>,
+}
+fn check_output_attributes(root: &Path, path: &str) -> Result<()> {
+    let bytes = git(root, &["check-attr","--cached","-z","filter","working-tree-encoding","ident","eol","--",path],None)?;
+    let fields: Vec<_> = bytes.split(|b| *b == 0).collect();
+    if fields.len() != 13 || fields[12] != b"" {
+        return Err(format!("unexpected Git attribute response: {path}"));
+    }
+    for triple in fields[..12].chunks_exact(3) {
+        let name = std::str::from_utf8(triple[1]).map_err(|_| "invalid attribute name")?;
+        let value = std::str::from_utf8(triple[2]).map_err(|_| "invalid attribute value")?;
+        if triple[0] != path.as_bytes() || !(matches!(value,"unspecified" | "unset") || (name == "eol" && value == "lf")) {
+            return Err(format!("unsupported generated-output attribute: {path}: {name}={value}"));
+        }
+    }
+    Ok(())
+}
+fn evaluate(root: &Path, commit: Option<&str>, generate: bool, plan: bool, adoption: Adoption<'_>) -> Result<Report> {
     let mut inv = inventory(root,commit)?;
     let original = inv.clone();
     let tracked_files = inv.len();
@@ -390,14 +432,33 @@ fn evaluate(root: &Path, commit: Option<&str>, generate: bool, plan: bool) -> Re
     }
     audit_links(root,&inv,&config,&docs,&mut findings)?;
     let mut changed_outputs = Vec::new();
+    let mut legacy_adoptions = Vec::new();
     if generate || plan {
         let targets = [(&config.register,&reg),(&config.manifest,&man)];
         for (p, bytes) in &targets {
-            if original.get(*p).is_some_and(Entry::regular) && !owned_output(p,&config,&blob(root,&original,p)?) {
-                findings.push(finding("OUTPUT_UNMANAGED",p,"tracked output is not owned by docs-guard; migrate explicitly"));
+            check_output_attributes(root,p)?;
+            let requested = if *p == &config.register { adoption.register } else { adoption.manifest };
+            let entry = original.get(*p).filter(|e| e.regular());
+            let unmanaged = match entry {
+                Some(_) => !owned_output(p,&config,&blob(root,&original,p)?),
+                None => false,
+            };
+            if let Some(oid) = requested {
+                if !unmanaged || !entry.is_some_and(|e| e.oid == oid) {
+                    findings.push(finding("ADOPTION_MISMATCH",p,"adoption requires an unmanaged tracked output with the exact reviewed staged object ID"));
+                } else {
+                    legacy_adoptions.push(format!("{p}={oid}"));
+                }
+            } else if unmanaged {
+                findings.push(finding("OUTPUT_UNMANAGED",p,"tracked output is not owned by docs-guard; use separate outputs or explicitly adopt reviewed legacy object ID"));
             }
             let target = safe_output(root,p)?;
-            if !target.exists() { changed_outputs.push((*p).clone()); }
+            if !target.exists() {
+                changed_outputs.push((*p).clone());
+                if requested.is_some() {
+                    findings.push(finding("ADOPTION_MISSING_WORKTREE",p,"restore the reviewed legacy output before adoption"));
+                }
+            }
             if target.exists() {
                 let existing = fs::read(&target).map_err(|e| e.to_string())?;
                 if existing != **bytes { changed_outputs.push((*p).clone()); }
@@ -428,6 +489,7 @@ fn evaluate(root: &Path, commit: Option<&str>, generate: bool, plan: bool) -> Re
         outcome: if !findings.is_empty() {"FAIL"} else if generate {"GENERATED_NOT_CHECKED"} else if plan {"PLAN_READY"} else {"PASS"},
         findings,
         changed_outputs,
+        legacy_adoptions,
     })
 }
 fn emit(json: bool, value: &serde_json::Value, human: &str) -> Result<()> {
@@ -453,14 +515,14 @@ fn run(cli: &Cli) -> Result<u8> {
             if emit(cli.json,&serde_json::json!({"schema_version":1,"outcome":"DIAGNOSTIC","git":version.trim(),"root":root,"version":env!("CARGO_PKG_VERSION")}),&format!("docs-guard {} | {} | {}",env!("CARGO_PKG_VERSION"),version.trim(),root.display())).is_err() { return Ok(2); }
             return Ok(0);
         },
-        Action::Generate => evaluate(&root,None,true,false)?,
-        Action::Plan => evaluate(&root,None,false,true)?,
+        Action::Generate {adopt_register,adopt_manifest} => evaluate(&root,None,true,false,Adoption {register:adopt_register.as_deref(),manifest:adopt_manifest.as_deref()})?,
+        Action::Plan {adopt_register,adopt_manifest} => evaluate(&root,None,false,true,Adoption {register:adopt_register.as_deref(),manifest:adopt_manifest.as_deref()})?,
         Action::Check {index,commit} | Action::Status {index,commit} => {
             let sha = if *index { None } else {
                 let spec = format!("{}^{{commit}}",commit.as_deref().unwrap_or("HEAD"));
                 Some(utf8(git(&root,&["rev-parse","--verify","--end-of-options",&spec],None)?)?.trim().to_owned())
             };
-            evaluate(&root,sha.as_deref(),false,false)?
+            evaluate(&root,sha.as_deref(),false,false,Adoption::default())?
         }
     };
     if cli.json {
@@ -468,6 +530,7 @@ fn run(cli: &Cli) -> Result<u8> {
     } else {
         let mut out = format!("DOCS_GUARD_{} snapshot={} tracked={} documents={}",report.outcome,report.snapshot,report.tracked_files,report.documents);
         for p in &report.changed_outputs { out.push_str(&format!("\nOUTPUT_CHANGE {p}")); }
+        for p in &report.legacy_adoptions { out.push_str(&format!("\nLEGACY_ADOPTION {p}")); }
         emit(false,&serde_json::Value::Null,&out)?;
         let mut stderr = std::io::stderr().lock();
         for f in &report.findings { writeln!(stderr,"{} {}: {}",f.code,f.path,f.detail).map_err(|e| e.to_string())?; }

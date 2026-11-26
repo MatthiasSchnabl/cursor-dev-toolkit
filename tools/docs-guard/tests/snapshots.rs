@@ -121,3 +121,70 @@ fn rejects_git_scope_overrides() {
     assert_eq!(report["code"],"EXECUTION_ERROR");
     assert!(report["detail"].as_str().unwrap().contains("GIT_INDEX_FILE"));
 }
+
+#[test]
+fn adopts_only_reviewed_legacy_objects() {
+    let repo=Repo::new(); repo.fixture();
+    let register="docs/inventory/DOCUMENT_REGISTER.md";
+    let manifest="docs/inventory/FILE_MANIFEST.tsv";
+    repo.put(register,"Legacy generated register\n");
+    repo.put(manifest,"Legacy generated manifest\n");
+    repo.git(&["add","docs/inventory"]);
+    let oid=|path:&str| {
+        let out=Command::new("git").current_dir(&repo.root).args(["rev-parse",&format!(":{path}")]).output().unwrap();
+        assert!(out.status.success());
+        String::from_utf8(out.stdout).unwrap().trim().to_owned()
+    };
+    let r=oid(register);
+    let m=oid(manifest);
+    let args=["--adopt-register",r.as_str(),"--adopt-manifest",m.as_str()];
+    let bad=repo.expect(&["generate","--adopt-register","wrong","--adopt-manifest",&m],1);
+    assert!(bad["findings"].as_array().unwrap().iter().any(|f|f["code"]=="ADOPTION_MISMATCH"));
+    let report=repo.expect(&[&["plan"][..],&args].concat(),0);
+    assert_eq!(report["legacy_adoptions"].as_array().unwrap().len(),2);
+    assert_eq!(read(&repo.root,register),b"Legacy generated register\n");
+    repo.expect(&[&["generate"][..],&args].concat(),0);
+    repo.git(&["add","docs/inventory"]);
+    repo.expect(&["check","--index"],0);
+    repo.expect(&[&["generate"][..],&args].concat(),1);
+}
+#[test]
+fn registers_root_and_nonstandard_docs_and_rename_delete() {
+    let repo=Repo::new(); repo.fixture();
+    repo.put("CHANGELOG.md","Release notes\n");
+    repo.put("manual/user guide.md","Guide\n");
+    repo.put("notes/optional.txt","Optional evidence\n");
+    let cfg=include_str!("../examples/docs-guard.toml").replace("replace-with-project-id","fixture")
+        .replace("optional_documents = []","optional_documents = [\"notes/optional.txt\"]");
+    repo.put("docs-guard.toml",&cfg);
+    repo.git(&["add","."]);
+    repo.generated();
+    let path="docs/inventory/DOCUMENT_REGISTER.md";
+    let text=String::from_utf8(read(&repo.root,path)).unwrap();
+    assert!(text.contains("CHANGELOG.md"));
+    assert!(text.contains("user%20guide.md"));
+    assert!(text.contains("notes/optional.txt"));
+    repo.git(&["mv","manual/user guide.md","manual/renamed.md"]);
+    repo.git(&["rm","CHANGELOG.md"]);
+    repo.expect(&["check","--index"],1);
+    repo.generated();
+    let text=String::from_utf8(read(&repo.root,path)).unwrap();
+    assert!(text.contains("manual/renamed.md"));
+    assert!(!text.contains("CHANGELOG.md"));
+    assert!(!text.contains("user%20guide.md"));
+}
+#[test]
+fn refuses_clean_filter_and_required_exclusion() {
+    let repo=Repo::new(); repo.fixture();
+    repo.put(".gitattributes","docs/inventory/* filter=custom\n");
+    repo.git(&["add",".gitattributes"]);
+    let result=repo.expect(&["generate"],2);
+    assert!(result["detail"].as_str().unwrap().contains("attribute"));
+    assert!(!repo.root.join("docs/inventory").exists());
+    repo.git(&["rm",".gitattributes"]);
+    let cfg=include_str!("../examples/docs-guard.toml").replace("replace-with-project-id","fixture")
+        .replace("link_exclusions = []","link_exclusions = [\"README.md\"]");
+    repo.put("docs-guard.toml",&cfg);
+    repo.git(&["add","docs-guard.toml"]);
+    repo.expect(&["check","--index"],2);
+}
