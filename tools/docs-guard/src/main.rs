@@ -144,7 +144,12 @@ struct Report {
     outcome: &'static str,
 }
 fn finding(code: &'static str, path: &str, detail: impl Into<String>) -> Finding {
-    Finding { code, path: path.into(), detail: detail.into() }
+    let detail = detail.into();
+    // Bound human and machine diagnostic size even for hostile Markdown URLs.
+    let mut chars = detail.chars();
+    let mut bounded: String = chars.by_ref().take(2048).collect();
+    if chars.next().is_some() { bounded.push_str(" [diagnostic shortened]"); }
+    Finding { code, path: path.into(), detail: bounded }
 }
 
 fn utf8(bytes: Vec<u8>) -> Result<String> {
@@ -248,6 +253,8 @@ impl Config {
                 validate_path(p)?;
                 if p == &self.register || p == &self.manifest || p == CONFIG ||
                     rule.watch.iter().any(|prefix| within(p,prefix)) ||
+                    self.exclude_document_roots.iter().any(|prefix| within(p,prefix)) ||
+                    self.link_exclusions.iter().any(|prefix| within(p,prefix)) ||
                     !self.roles.values().chain(self.extra_required.iter()).chain(self.optional_documents.iter()).any(|d| d == p) {
                     return Err(format!("change rule {} targets must be declared curated documents outside watched paths",rule.id));
                 }
@@ -525,6 +532,7 @@ fn evaluate(root: &Path, commit: Option<&str>, base: Option<&str>, generate: boo
     }
     let docs = config.documents(&inv);
     let reg = register(&config,&docs);
+    if reg.len() > MAX_OUTPUT_FILE { return Err("generated register exceeds size limit".into()); }
     let reg_oid = utf8(git(root,&["hash-object","--stdin"],Some(&reg))?)?.trim().to_string();
     let reg_mode = inv.get(&config.register).map(|e| e.mode.clone()).unwrap_or_else(|| "100644".into());
     if reg_mode != "100644" { findings.push(finding("OUTPUT_MODE",&config.register,"generated register must be mode 100644")); }

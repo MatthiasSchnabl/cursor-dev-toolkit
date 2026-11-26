@@ -271,3 +271,29 @@ fn rejects_nonportable_generated_path_and_oversize_markdown() {
     let report=repo.expect(&["generate"],2);
     assert!(report["detail"].as_str().unwrap().contains("size limit"));
 }
+
+#[test]
+fn read_only_checks_preserve_index_and_worktree() {
+    let repo=Repo::new(); repo.fixture();
+    repo.generated();
+    repo.git(&["commit","-qm","baseline"]);
+    repo.put("README.md","unstaged edit\n");
+    let inspect=|args:&[&str]| {
+        let out=Command::new("git").current_dir(&repo.root).args(args).output().unwrap();
+        assert!(out.status.success());
+        out.stdout
+    };
+    let status=inspect(&["status","--porcelain=v1","-z"]);
+    let index=inspect(&["ls-files","--stage","-z"]);
+    let manifest=read(&repo.root,"docs/inventory/FILE_MANIFEST.tsv");
+    let register=read(&repo.root,"docs/inventory/DOCUMENT_REGISTER.md");
+    repo.expect(&["plan"],0);
+    repo.expect(&["check"],0);
+    repo.expect(&["check","--index"],0);
+    repo.expect(&["status","--index"],0);
+    assert_eq!(status,inspect(&["status","--porcelain=v1","-z"]));
+    assert_eq!(index,inspect(&["ls-files","--stage","-z"]));
+    assert_eq!(manifest,read(&repo.root,"docs/inventory/FILE_MANIFEST.tsv"));
+    assert_eq!(register,read(&repo.root,"docs/inventory/DOCUMENT_REGISTER.md"));
+    assert_eq!(read(&repo.root,"README.md"),b"unstaged edit\n");
+}

@@ -59,6 +59,10 @@ Git subprocesses are direct argument-vector calls, with concurrent pipe draining
 
 Stale manifests report counts and up to five example paths each for added, removed and changed Git entries; rename appears as remove/add, not inferred identity. Broken links include line numbers. Generated-output path checks reject Windows reserved names, trailing dot/space, illegal characters and Windows reparse points; cross-platform alias and concurrent filesystem behavior still need tests. Unsupported input is explicit failure, not silently excluded.
 
+## Static review and acceptance
+
+See [static review and acceptance ledger](documentation-guard-acceptance.md) for the ordered test plan, known limitations and source-only findings. All gates are NOT_RUN. No unverified release or change to existing consumer guards.
+
 ## Remaining acceptance gates
 
 1. Resolve/pin dependencies and commit Cargo.lock; run fmt, check, clippy, tests and release build on authorized QA infrastructure.
