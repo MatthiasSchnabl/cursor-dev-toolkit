@@ -1,0 +1,15 @@
+# Linux/amd64 consumer QA image, separate from the production runner.
+ARG QA_BASE=rust-mcp-test-rust:1.99.1-rustfmt-git-20261117
+FROM ${QA_BASE} AS builder
+WORKDIR /workspace
+COPY Cargo.toml Cargo.lock ./
+COPY tools/docs-guard tools/docs-guard
+RUN echo "ce94e298d2ba071113cd29a464191c11b7244f696ab05d2981f7aef7bb3306f7  Cargo.lock" | sha256sum -c - \
+    && cargo build --release --locked \
+    && target/release/docs-guard --version
+FROM ${QA_BASE}
+COPY --from=builder --chmod=0555 /workspace/target/release/docs-guard /usr/local/bin/docs-guard
+LABEL org.opencontainers.image.title="Central Documentation Guard QA" \
+      org.opencontainers.image.version="0.1.0" \
+      org.opencontainers.image.revision="bd6ec0f996ad0955d40e8d6dc3ee46a07baea882"
+RUN docs-guard --version && sha256sum /usr/local/bin/docs-guard
