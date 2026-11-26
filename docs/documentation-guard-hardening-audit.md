@@ -21,3 +21,7 @@ Static source audit, not an independent full-repository audit. No execution on C
 | DG-H09 | HIGH | HIGH | OPEN | Cargo.lock missing; all compilation, Clippy, RustSec, platform/consumer tests NOT_RUN. Cannot resolve by static patch; real QA mandatory. |
 
 Fix scope: existing behavior and security boundaries only. Regression tests precede or accompany changes. No new dependencies, no additional runtime features. Retain source and runtime verification statuses separately.
+
+## Remediation pass 1 (source only)
+
+DG-H01–H08: source corrections authored, with regression cases for case alias, nested repository, attribute drift, configuration size, mode-only rule and malformed release lock. All remain OPEN pending actual compiler/runtime evidence. DG-H02 is a narrower optimistic recheck, not atomic compare-and-swap; concurrent malicious writers require isolation. DG-H06 excludes current generated targets from prior rule satisfaction; externally trusted policy selection remains mandatory. DG-H09 remains OPEN, deferred as agreed. No findings are marked RESOLVED. No new crates. See code commits after audit baseline.

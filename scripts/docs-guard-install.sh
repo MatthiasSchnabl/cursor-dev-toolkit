@@ -26,7 +26,7 @@ esac
 lock="$ROOT/scripts/docs-guard-release.lock.tsv"
 [[ -f "$lock" ]] || die "missing release lock"
 # A single approved row must bind version/target, source revision and artifact SHA-256.
-row="$(awk -F '\t' -v v="$version" -v t="$target" '$1==v && $2==t {print; n++} END {if(n!=1) exit 1}' "$lock")" || die "missing or ambiguous release pin for $version/$target"
+row="$(awk -F '\t' -v v="$version" -v t="$target" '$1==v && $2==t {if(NF!=4) exit 2; print; n++} END {if(n!=1) exit 1}' "$lock")" || die "missing or ambiguous release pin for $version/$target"
 IFS=$'\t' read -r pinned_version pinned_target source_sha sha extra <<<"$row"
 [[ "$pinned_version" == "$version" && "$pinned_target" == "$target" && "$source_sha" =~ ^[0-9a-f]{40}$ && "$sha" =~ ^[0-9a-f]{64}$ && -z "$extra" ]] || die "invalid release lock entry"
 
@@ -59,7 +59,7 @@ check_dest
 case "$1" in
   doctor)
     printf 'version=%s target=%s source=%s path=%s\n' "$version" "$target" "$source_sha" "$dest"
-    if [[ -f "$dest" ]]; then verify_binary "$dest"; printf 'status=verified\n'; else printf 'status=not_installed\n'; fi ;;
+    if [[ -f "$dest" ]]; then verify_binary "$dest"; [[ -x "$dest" ]] || die "installed binary is not executable"; printf 'status=verified\n'; else printf 'status=not_installed\n'; fi ;;
   verify)
     verify_binary "$dest"
     [[ -x "$dest" ]] || die "installed binary is not executable"
@@ -69,6 +69,7 @@ case "$1" in
     verify_binary "$asset"
     if [[ -e "$dest" ]]; then
       verify_binary "$dest"
+      [[ -x "$dest" ]] || die "installed binary is not executable"
       printf '%s\n' "$dest"
       exit 0
     fi

@@ -87,3 +87,7 @@ Read AGENTS.md and canonical index/status/decisions/evidence/handoff first. Upda
 ## Dependency rationale
 
 `tempfile` is used for safe temporary-file creation and same-directory replacement (and isolated test fixtures), rather than custom random naming or truncating targets. See [NamedTempFile::persist](https://docs.rs/tempfile/latest/tempfile/struct.NamedTempFile.html#method.persist). Git environment controls are based on [Git documentation](https://git-scm.com/docs/git). Dependency resolution and RustSec remain unverified until authorized QA.
+
+## Hardening review
+
+See [hardening audit](documentation-guard-hardening-audit.md) for persisted findings and remediation status. Generated output paths use portable ASCII names; tracked case/prefix collisions, worktree aliases and nested repositories are refused. Both staged and live output attributes must agree. Before each replacement the index and previously observed bytes are checked again (not atomic against concurrent malicious writers). Configuration size is limited to 256 KiB and policy items to 2,048. Git stderr and TOML source excerpts are omitted from error reports. All new checks await real QA.

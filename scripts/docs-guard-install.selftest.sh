@@ -37,6 +37,10 @@ if command -v sha256sum >/dev/null; then result="$(sha256sum < "$tmp/asset")"
 else result="$(shasum -a 256 < "$tmp/asset")"; fi
 sha="${result%% *}"
 printf '9.8.7\t%s\t0123456789abcdef0123456789abcdef01234567\t%s\n' "$target" "$sha" >"$lock"
+# Matching row with extra empty field is invalid.
+printf '9.8.7\t%s\t0123456789abcdef0123456789abcdef01234567\t%s\t\n' "$target" "$sha" >"$lock"
+expect_failure doctor
+printf '9.8.7\t%s\t0123456789abcdef0123456789abcdef01234567\t%s\n' "$target" "$sha" >"$lock"
 expect_failure install "$tmp/wrong"
 [[ ! -e "$HOME/.local" ]]
 bash "$script" doctor | grep -q 'status=not_installed'

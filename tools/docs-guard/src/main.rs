@@ -233,7 +233,7 @@ impl Config {
         }
         let policy_items = self.document_roots.len() + self.document_extensions.len() + self.exclude_document_roots.len() +
             self.roles.len() + self.extra_required.len() + self.optional_documents.len() + self.link_exclusions.len() +
-            self.change_rules.iter().map(|r| 1 + r.watch.len() + r.require.len() + usize::from(r.review_document.is_some())).sum::<usize>();
+            self.change_rules.iter().map(|r| 1 + r.watch.len() + r.require.len() + (if r.review_document.is_some() { 1 } else { 0 })).sum::<usize>();
         if policy_items > MAX_POLICY_ITEMS { return Err("configuration policy item limit exceeded".into()); }
         for p in &self.document_roots {
             if p != "." { validate_path(p)?; }
@@ -486,6 +486,10 @@ fn validate_output_scope(config: &Config, inv: &Inventory) -> Result<()> {
         let folded = target.to_lowercase();
         for (path,entry) in inv {
             let other = path.to_lowercase();
+            for (a,b) in target.split('/').zip(path.split('/')) {
+                if a.to_lowercase() != b.to_lowercase() { break; }
+                if a != b { return Err(format!("generated path has a case-aliased tracked component: {target} / {path}")); }
+            }
             if path == target {
                 if !entry.regular() { return Err(format!("nonregular tracked output: {target}")); }
             } else if within(&folded,&other) || within(&other,&folded) {
@@ -550,7 +554,7 @@ fn load_config(root: &Path, inv: &Inventory) -> Result<Config> {
 fn audit_change_rules(current: &Inventory, base: &Inventory, config: &Config, candidate: &Config, findings: &mut Vec<Finding>) {
     let changed: BTreeSet<&str> = current.keys().chain(base.keys())
         .filter(|p| current.get(*p) != base.get(*p)).map(String::as_str).collect();
-    let updated = |p: &str| p != candidate.register && p != candidate.manifest && current.get(p).is_some_and(|entry| entry.regular() && base.get(p).map(|old| &old.oid) != Some(&entry.oid));
+    let updated = |p: &str| p != candidate.register.as_str() && p != candidate.manifest.as_str() && current.get(p).is_some_and(|entry| entry.regular() && base.get(p).map(|old| &old.oid) != Some(&entry.oid));
     for rule in &config.change_rules {
         if !changed.iter().any(|path| rule.watch.iter().any(|prefix| within(path,prefix))) { continue; }
         if rule.review_document.as_deref().is_some_and(updated) { continue; }
