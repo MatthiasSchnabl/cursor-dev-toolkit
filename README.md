@@ -285,3 +285,7 @@ Set `GBRAIN_DATABASE_URL` in Cursor Dashboard → Cloud Agents → Secrets.
 - Private marketplace requires Teams/Enterprise
 
 See [docs/cursor-constraints.md](docs/cursor-constraints.md) and [docs/adr-global-cursor-tooling.md](docs/adr-global-cursor-tooling.md).
+
+## Rust CLI engineering
+
+For command-line applications and standalone development tools, apply the [Rust CLI Engineering Standard](skills/engineering/_standards/rust-cli-engineering-standard.md) alongside the existing Rust, quality and security standards. The standalone [Documentation Guard](docs/documentation-guard.md) is a source draft, not an installed or released tool.

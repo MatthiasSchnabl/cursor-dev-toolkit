@@ -6,6 +6,10 @@ Status: SOURCE DRAFT; not compiled, released or operationally approved. No runti
 
 Independent Rust CLI inside the toolkit repository, not a new service. Offline Git CLI supplies the snapshot and object IDs. The toolkit owns distribution; each consumer owns its configuration and curated documents. The generic core must never infer semantic correctness, scientific approval, or release status. Application Knowledge Engineering remains a separate app-owned knowledge/publishing workflow. No consumer-private fixtures or identifiers belong in this public repository.
 
+## Engineering quality
+
+Apply the [Rust CLI Engineering Standard](../skills/engineering/_standards/rust-cli-engineering-standard.md) with the existing general standards. Use clap derive and actual executable tests. This source draft is not an accepted CLI or runtime integration.
+
 ## Snapshot and commands
 
 - `docs-guard init`: creates a configuration example only; never overwrites a config. Adapt identity and create/locate required docs.
@@ -29,7 +33,7 @@ Production adds operations/deployment. Scientific adds a scientific status role.
 2. Differential comparison against existing reference behavior using synthetic fixtures; privately run real consumer migration tests. Preserve domain-specific guards separately.
 3. Integration tests: clean HEAD vs staged/unstaged changes, generation convergence, missing links/files, invalid configuration, symlink/submodule, path encoding, SHA-256 repositories, filters/CRLF, Windows/Linux; document exact job evidence.
 4. Harden output transaction and Git filters; establish supported cross-platform path policy and strict snapshot identity evidence for index mode.
-5. Extend plan output to show changed files; optional anchors/advanced link syntax and change-trigger rules need design/test. Add generic enforcement for documentation-change review only where justified.
+5. Verify changed-output reporting in plan; optional anchors/advanced link syntax and change-trigger rules need design/test. Add generic enforcement for documentation-change review only where justified.
 6. Add toolkit installation/update/doctor, version pin and checksum-verified release assets; no release until verified. Use existing local/cloud adapter infrastructure and no per-repository toolkit clone.
 7. Extend existing external QA runner with allowlisted standalone check, no weakening or replacement of existing gates before proven parity. No GitHub Actions, no changes to runner/Contabo during source-draft phase.
 8. Pilot on a reference repository and a structurally different non-Rust repository. Keep previous guard until migration acceptance. Required status checks and protected-branch enforcement are separate from local agent rules.
