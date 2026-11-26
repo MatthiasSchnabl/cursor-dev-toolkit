@@ -25,3 +25,18 @@ Fix scope: existing behavior and security boundaries only. Regression tests prec
 ## Remediation pass 1 (source only)
 
 DG-H01–H08: source corrections authored, with regression cases for case alias, nested repository, attribute drift, configuration size, mode-only rule and malformed release lock. All remain OPEN pending actual compiler/runtime evidence. DG-H02 is a narrower optimistic recheck, not atomic compare-and-swap; concurrent malicious writers require isolation. DG-H06 excludes current generated targets from prior rule satisfaction; externally trusted policy selection remains mandatory. DG-H09 remains OPEN, deferred as agreed. No findings are marked RESOLVED. No new crates. See code commits after audit baseline.
+
+## Error-handling follow-up audit (2026-11-26)
+
+Baseline: c8233f4e4c2609256099c9a6beb7015e9563b2c7. Scope limited to error boundaries and failure recovery; Rust standard §§6–7, CLI standard §2, Security §§29–39 and Testing §§24, 105–106. Source review only; all findings OPEN.
+
+| ID | Severity | Evidence / required correction |
+|---|---|---|
+| DG-E01 | HIGH | main.rs Result<T,String> and generic EXECUTION_ERROR: no stable classification for config, Git, I/O, security, limits, conflicts or internal errors; preserve typed sources and safe context. |
+| DG-E02 | HIGH | main.rs evaluate: second output failure after first replacement does not report completed writes or recovery instructions. |
+| DG-E03 | MEDIUM | main.rs emit/run: several output failures silently return exit 2; report stream failure on stderr without attempting another JSON document. |
+| DG-E04 | MEDIUM | git_process.rs: start, exit, timeout, pipe/worker failures collapse into strings; cleanup errors discarded. Preserve distinctions and do not expose raw stderr. |
+| DG-E05 | MEDIUM | tests/snapshots.rs: generic execution error assertion and limited failure-contract coverage. Add code/category/operation, partial-write and redaction tests. |
+| DG-E06 | MEDIUM | audit_links: raw link destinations in diagnostics can leak query strings or credentials. Do not echo raw destination; retain file, line and resolved safe path. |
+
+No scope expansion, no new dependencies, no runtime verification until authorized QA.
