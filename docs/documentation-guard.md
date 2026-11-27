@@ -1,6 +1,6 @@
-# Documentation Guard — implementation draft
+# Documentation Guard — Rust CLI
 
-Status: SOURCE DRAFT; not compiled, released or operationally approved. No runtime rollout.
+Status: ACCEPTED for central Linux developer QA (2026-11-27). The verified native executable is available in the [central QA image](documentation-guard-central-linux.md). Project-specific migration and global installer activation remain separate.
 
 ## Decision
 
@@ -8,7 +8,7 @@ Independent Rust CLI inside the toolkit repository, not a new service. Offline G
 
 ## Engineering quality
 
-Apply the [Rust CLI Engineering Standard](../skills/engineering/_standards/rust-cli-engineering-standard.md) with the existing general standards. Use clap derive and actual executable tests. This source draft is not an accepted CLI or runtime integration.
+Apply the [Rust CLI Engineering Standard](../skills/engineering/_standards/rust-cli-engineering-standard.md) with the existing general standards. Use clap derive and actual executable tests. The native CLI passed formatting, check, Clippy, 27 tests, release build and central image smoke; see the [acceptance ledger](documentation-guard-acceptance.md).
 
 ## Snapshot and commands
 
@@ -21,7 +21,7 @@ Apply the [Rust CLI Engineering Standard](../skills/engineering/_standards/rust-
 - Link audit uses a Markdown parser and checks repository-local file/directory targets against the selected snapshot, not the live filesystem. Fragment/heading validation, HTML and non-Markdown link formats are not implemented in this draft. External URLs are not fetched.
 - Unsupported non-UTF-8 and control/ambiguous path characters fail explicitly rather than disappearing from inventories. Output traversal and symlinks are rejected. Unmanaged tracked targets and dirty output files are refused. Same-directory temporary files are used for per-file replacement; a crash or second-file failure can leave partially updated output, which must be reviewed and regenerated before staging. No transaction across both files; not a sandbox against concurrent malicious workspace writers. Git redirection environment variables are rejected; lazy fetching, replacement objects, optional locks and interactive prompts are disabled. Git support for these controls must be verified on both OS targets.
 
-## Native knowledge export (candidate; no indexing)
+## Native knowledge export (no indexing)
 
 `docs-guard --json knowledge-export --commit FULL_COMMIT --repository CONFIG_ID --role status --role decisions`
 

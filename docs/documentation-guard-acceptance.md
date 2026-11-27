@@ -1,8 +1,8 @@
-# Documentation Guard v0.1 — static review and acceptance ledger
+# Documentation Guard v0.1 — acceptance ledger
 
-Status: SOURCE REVIEW ONLY / NOT RUN / NO MERGE / NO RELEASE.
+**Current decision (2026-11-27): GO / completed for standalone Linux developer QA.** Native Rust quality gates and verified central image smoke passed. Owner explicitly authorized closing the implementation and merging to master. Existing consumer migrations and global installer activation are not part of this release. Historical pre-QA sections below retain their original status at the time of writing.
 
-## Source review scope
+## Historical source review scope
 
 Reviewed the generic CLI, Git snapshot comparison, generated-output ownership, legacy adoption, parser contract, Git process boundary, change-dependent documentation and installer pins. Compared with the toolkit Rust CLI, general Rust, Testing & Quality and Security & Supply Chain standards. No private consumer code copied. This is not an independent runtime audit; no GBrain, Graphify or gstack execution in the authorized GitHub-only phase. Context7 was unavailable in the previous phase. No Contabo or GitHub Actions jobs, no fabricated test results.
 
@@ -84,3 +84,7 @@ Next: native gate and commit/push, separate generic target path, supply-chain va
 ## Central Linux opt-in acceptance — 2026-11-27
 
 Native export source quality PASS and central QA image availability PASS. See [central distribution evidence](documentation-guard-central-linux.md) for the exact image/source/binary pins and jobs. Cargo.lock unchanged; prior RustSec and independent index verification reused without claiming a fresh scan. Image smoke exercised the actual native binary without Python through init/generate/check/knowledge-export. Owner authorized scoped merge and updated central distribution. Existing broad PR #7 master/global installer/consumer replacement acceptance is not implied: reference parity, real per-consumer migration, remaining audit limits and any wider distribution require their own evidence. No GBrain execution or publishing. Linux-only developer QA, not global automatic activation.
+
+## Closure decision — 2026-11-27
+
+The owner explicitly instructed completion of the standalone Linux Rust component. Prior PR #8 and #9 merges and the current central image already satisfy that scoped delivery. All runtime/build files in the integrated branch before this documentation-only closure are identical to the verified image build source. The exact runtime and dependency evidence remains in the sections above. Master merge is authorized for this scoped component; project-specific reference parity, replacement of existing gates, global offline installer activation, remaining audit findings and Windows are not represented as accepted. They do not block opt-in central Linux use. No new GBrain activity or Contabo test jobs.
