@@ -12,6 +12,7 @@ use std::{
 
 mod error;
 mod git_process;
+mod knowledge_export;
 use error::{Code, GuardError, Result};
 use git_process::git;
 const CONFIG: &str = "docs-guard.toml";
@@ -73,6 +74,21 @@ enum Action {
         commit: Option<String>,
         #[arg(long)]
         base: Option<String>,
+    },
+    /// Export explicitly selected curated document roles from a checked commit (JSON only).
+    KnowledgeExport {
+        /// Full immutable Git commit object ID (not a ref).
+        #[arg(long)]
+        commit: String,
+        /// Trusted full comparison-base commit object ID, if required.
+        #[arg(long)]
+        base: Option<String>,
+        /// Expected repository identity from the committed Guard configuration.
+        #[arg(long)]
+        repository: String,
+        /// Curated role to export; repeat for multiple roles.
+        #[arg(long, required = true)]
+        role: Vec<String>,
     },
     /// Report the installed CLI and Git environment.
     Doctor,
@@ -1431,6 +1447,24 @@ fn run(cli: &Cli) -> Result<u8> {
             emit(cli.json,&serde_json::json!({"schema_version":1,"version":env!("CARGO_PKG_VERSION"),"outcome":"CONFIG_CREATED_NOT_CHECKED","path":CONFIG}),&format!("Created {CONFIG}; adapt identity and roles, create missing curated docs, stage inputs.")).map_err(|e| e.writes(&[CONFIG.to_owned()],None))?;
             return Ok(0);
         }
+        Action::KnowledgeExport {
+            commit,
+            base,
+            repository,
+            role,
+        } => {
+            if !cli.json {
+                return Err(GuardError::new(
+                    Code::ConfigInvalid,
+                    "knowledge-export requires --json; output contains selected document content",
+                ));
+            }
+            let export =
+                knowledge_export::export(&root, commit, base.as_deref(), repository, role)?;
+            let passed = export["outcome"] == "CANDIDATES_READY";
+            emit(true, &export, "")?;
+            return Ok(if passed { 0 } else { 1 });
+        }
         Action::Doctor => {
             let version = utf8(git(&root, &["--version"], None)?)?;
             emit(
@@ -1562,6 +1596,7 @@ fn main() -> ExitCode {
                 Action::Plan { .. } => "plan",
                 Action::Check { .. } => "check",
                 Action::Status { .. } => "status",
+                Action::KnowledgeExport { .. } => "knowledge-export",
             };
             let e = e.operation(action);
             // Never append a second JSON object after a failed output write.

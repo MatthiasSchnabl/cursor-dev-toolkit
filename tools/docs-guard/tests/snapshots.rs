@@ -607,3 +607,94 @@ fn unavailable_git_is_a_typed_runtime_error() {
     assert_eq!(report["partial_write_possible"], false);
     assert!(fs::read_dir(dir.path()).unwrap().next().is_none());
 }
+
+#[test]
+fn knowledge_export_uses_checked_immutable_blobs_and_explicit_roles() {
+    let repo = Repo::new();
+    repo.fixture();
+    repo.generated();
+    repo.git(&["commit", "-qm", "fixture"]);
+    let out = Command::new("git")
+        .current_dir(&repo.root)
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let sha = String::from_utf8(out.stdout).unwrap();
+    let sha = sha.trim();
+    repo.put("docs/PROJECT_STATUS.md", "uncommitted edit");
+    let args = [
+        "knowledge-export",
+        "--commit",
+        sha,
+        "--repository",
+        "fixture",
+        "--role",
+        "status",
+    ];
+    let receipt = repo.expect(&args, 0);
+    assert_eq!(receipt["outcome"], "CANDIDATES_READY");
+    assert_eq!(receipt["commit"], sha);
+    assert_eq!(receipt["guard_report"]["outcome"], "PASS");
+    assert_eq!(receipt["documents"].as_array().unwrap().len(), 1);
+    assert_eq!(receipt["documents"][0]["content"], "Synthetic fixture.\n");
+    assert_eq!(receipt["publish_authorized"], false);
+    repo.expect(
+        &[
+            "knowledge-export",
+            "--commit",
+            "HEAD",
+            "--repository",
+            "fixture",
+            "--role",
+            "status",
+        ],
+        2,
+    );
+    repo.expect(
+        &[
+            "knowledge-export",
+            "--commit",
+            sha,
+            "--repository",
+            "wrong",
+            "--role",
+            "status",
+        ],
+        2,
+    );
+    repo.expect(
+        &[
+            "knowledge-export",
+            "--commit",
+            sha,
+            "--repository",
+            "fixture",
+            "--role",
+            "agent_rules",
+        ],
+        2,
+    );
+    repo.git(&["add", "docs/PROJECT_STATUS.md"]);
+    repo.git(&["commit", "-qm", "stale manifest"]);
+    let out = Command::new("git")
+        .current_dir(&repo.root)
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .unwrap();
+    let stale = String::from_utf8(out.stdout).unwrap();
+    let failed = repo.expect(
+        &[
+            "knowledge-export",
+            "--commit",
+            stale.trim(),
+            "--repository",
+            "fixture",
+            "--role",
+            "status",
+        ],
+        1,
+    );
+    assert_eq!(failed["outcome"], "GUARD_FAILED");
+    assert_eq!(failed["documents"], serde_json::json!([]));
+}
