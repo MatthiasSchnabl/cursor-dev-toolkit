@@ -1587,6 +1587,7 @@ fn main() -> ExitCode {
                 Action::Plan { .. } => "plan",
                 Action::Check { .. } => "check",
                 Action::Status { .. } => "status",
+                Action::KnowledgeExport { .. } => "knowledge-export",
             };
             let e = e.operation(action);
             // Never append a second JSON object after a failed output write.
