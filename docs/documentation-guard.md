@@ -21,6 +21,14 @@ Apply the [Rust CLI Engineering Standard](../skills/engineering/_standards/rust-
 - Link audit uses a Markdown parser and checks repository-local file/directory targets against the selected snapshot, not the live filesystem. Fragment/heading validation, HTML and non-Markdown link formats are not implemented in this draft. External URLs are not fetched.
 - Unsupported non-UTF-8 and control/ambiguous path characters fail explicitly rather than disappearing from inventories. Output traversal and symlinks are rejected. Unmanaged tracked targets and dirty output files are refused. Same-directory temporary files are used for per-file replacement; a crash or second-file failure can leave partially updated output, which must be reviewed and regenerated before staging. No transaction across both files; not a sandbox against concurrent malicious workspace writers. Git redirection environment variables are rejected; lazy fetching, replacement objects, optional locks and interactive prompts are disabled. Git support for these controls must be verified on both OS targets.
 
+## Native knowledge export (candidate; no indexing)
+
+`docs-guard --json knowledge-export --commit FULL_COMMIT --repository CONFIG_ID --role status --role decisions`
+
+This optional read-only command reuses the existing Guard policy check on a full immutable commit, with `--base FULL_COMMIT` when change rules require a trusted ancestor. Only explicitly selected configured curated roles are exported. Shared paths are deduplicated; each document contains path, roles, Git blob object ID and UTF-8 content. Per-document bound 256 KiB; aggregate 1 MiB. No export of agent rules or implicit whole-repository crawl. A failed policy check returns `GUARD_FAILED`, no document content, exit 1. Invalid parameters or execution failures use exit 2. `CANDIDATES_READY` (exit 0) is not semantic verification or publishing authorization.
+
+Repository identity is matched to the committed configuration, not a remote authentication check. Consumers independently bind trusted repository origin, choose the comparison base, construct immutable source references and authorize any disclosure. Export JSON contains project document text: avoid shared logs and external providers without authorization. No network, database, GBrain dependency, Python, or automatic indexing is introduced. Ordinary Guard commands remain unchanged.
+
 ## Minimum information roles
 
 Minimal: scope, agent rules, index, current status (roadmap, risks, next action).
