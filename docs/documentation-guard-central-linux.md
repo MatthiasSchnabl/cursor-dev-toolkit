@@ -23,3 +23,22 @@ printf '%s  %s\n' 0c4e68492f7604523be34adcf6602e3f8a7c6092fa57eba30a1708a25a20cd
 ```
 
 Check image identity before use and verify binary hash in the worker. Subsequent calls use project-owned reviewed configuration and the same image. Do not fall back to rebuilding or downloading a different binary if this reference is unavailable. Keep existing project gates until migration acceptance. Central Linux availability PASS; automatic default activation and consumer migration are separate.
+
+## Updated Linux release — 2026-11-27
+
+**Approved scope: central Linux developer QA image, opt-in use only.** Existing global installer pins and consumer-specific migration approvals stay unchanged. Supersedes the previous image for new native knowledge-export use; the previous image is retained as rollback.
+
+- Image: `rust-mcp-test-docs-guard:0.1.0-5d625c9f`
+- Image ID: `sha256:2c448aa3893bddecc5c77f17bc8161e4a21b3c8817b1166295004b1eaba8998f`
+- Source: `5d625c9f4122e1dc4ebf65ec2ba18e3b4c793631` (exact Git build context, revision label overridden explicitly to match this commit).
+- Executable SHA-256: `a428bf615b29f6396be7465ebb3628b026c9f8ac2194e5a39bc5889e8eb2a55d`.
+- Verified existing base identity and layer prefix, Linux amd64, locked release build PASS. Cargo.lock is identical to the previously audited baseline, with no added dependencies. RustSec job `4ae3d03f364f4e32b022f06214faa55c` found no vulnerability in 1568 advisories on 2026-11-26; separate sparse-index job `76f588bf8a27450984e90ee5dcf462dd` verified all 51 external versions/checksums/not-yanked. This is reused evidence, not a new advisory-database scan.
+- Quality job `e78e62d76443465c8d976e3c7540cf35`: fmt, check, Clippy, 27/27 tests, release build PASS on identical Rust source. Image smoke `d361a8afbd4046039a2c926c12822d72`: rejected unmodified example configuration (invalid placeholder identity). Corrected smoke `263cac00a1694f208a9210c0054aec1a`: exit 0, 10 seconds; executable hash, doctor, init, generate, committed snapshot check and native knowledge export PASS on isolated synthetic repository. No Python required. No external provider.
+
+Use the new image explicitly through existing `test_run` and verify its executable before running the project-specific command:
+
+```sh
+printf '%s  %s\n' a428bf615b29f6396be7465ebb3628b026c9f8ac2194e5a39bc5889e8eb2a55d /usr/local/bin/docs-guard | sha256sum -c - && docs-guard --root . --json doctor
+```
+
+This is central availability, not an automatic migration of any consumer, independent security certification, or approval of GBrain indexing. No Windows distribution or project gate replacement.
