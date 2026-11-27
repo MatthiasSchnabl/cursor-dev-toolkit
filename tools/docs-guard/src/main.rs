@@ -1447,11 +1447,20 @@ fn run(cli: &Cli) -> Result<u8> {
             emit(cli.json,&serde_json::json!({"schema_version":1,"version":env!("CARGO_PKG_VERSION"),"outcome":"CONFIG_CREATED_NOT_CHECKED","path":CONFIG}),&format!("Created {CONFIG}; adapt identity and roles, create missing curated docs, stage inputs.")).map_err(|e| e.writes(&[CONFIG.to_owned()],None))?;
             return Ok(0);
         }
-        Action::KnowledgeExport { commit, base, repository, role } => {
+        Action::KnowledgeExport {
+            commit,
+            base,
+            repository,
+            role,
+        } => {
             if !cli.json {
-                return Err(GuardError::new(Code::ConfigInvalid, "knowledge-export requires --json; output contains selected document content"));
+                return Err(GuardError::new(
+                    Code::ConfigInvalid,
+                    "knowledge-export requires --json; output contains selected document content",
+                ));
             }
-            let export = knowledge_export::export(&root, commit, base.as_deref(), repository, role)?;
+            let export =
+                knowledge_export::export(&root, commit, base.as_deref(), repository, role)?;
             let passed = export["outcome"] == "CANDIDATES_READY";
             emit(true, &export, "")?;
             return Ok(if passed { 0 } else { 1 });
