@@ -24,6 +24,7 @@ pass "toolkit version $TOOLKIT_VERSION"
 required_rules=(
   development-tool-routing.mdc
   rust-engineering-standard.mdc
+  rust-cli-engineering-standard.mdc
   rust-axum-engineering-standard.mdc
   rust-sqlx-engineering-standard.mdc
   testing-quality-engineering-standard.mdc
@@ -59,6 +60,7 @@ for framework_rule in frontend-engineering-core.mdc nextjs-engineering-standard.
   grep -q '^alwaysApply: false' "$PLUGIN_DIR/rules/$framework_rule" ||
     fail "frontend rule must not be globally always-on: $framework_rule"
 done
+[[ -f "$PLUGIN_DIR/skills/engineering/_standards/rust-cli-engineering-standard.md" ]] || fail "missing Rust CLI engineering standard"
 pass "engineering rules are compact and present"
 
 required_skills=(

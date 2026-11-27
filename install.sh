@@ -19,7 +19,7 @@ copy_plugin_tree() {
   local source="$1" destination="$2"
   if [[ -e "$destination" || -L "$destination" ]]; then rm -rf "$destination"; fi
   mkdir -p "$destination"
-  (cd "$source" && tar --exclude='.git' --exclude='.cursor-toolkit-install' -cf - .) | (cd "$destination" && tar -xf -)
+  (cd "$source" && tar --exclude='.git' --exclude='.cursor-toolkit-install' --exclude='./target' --exclude='./tools/docs-guard/target' -cf - .) | (cd "$destination" && tar -xf -)
   local commit="unknown"
   git -C "$source" rev-parse HEAD >/dev/null 2>&1 && commit="$(git -C "$source" rev-parse HEAD)"
   {

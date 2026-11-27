@@ -1,0 +1,19 @@
+# Adapt repository identity and role paths before staging.
+schema_version = 1
+repository = "replace-with-project-id"
+profile = "minimal"
+register = "docs/inventory/DOCUMENT_REGISTER.md"
+manifest = "docs/inventory/FILE_MANIFEST.tsv"
+document_roots = ["."] # all repository paths; narrow only deliberately
+document_extensions = ["md", "rst", "adoc", "pdf"]
+exclude_document_roots = []
+extra_required = []
+optional_documents = []
+link_exclusions = []
+change_rules = []
+
+[roles]
+scope = "README.md"
+agent_rules = "AGENTS.md"
+index = "docs/INDEX.md"
+status = "docs/PROJECT_STATUS.md"

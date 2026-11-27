@@ -1,0 +1,16 @@
+---
+description: Rust CLI engineering anchor — typed clap interfaces, automation contract and safe side effects
+alwaysApply: false
+---
+
+# Rust CLI engineering
+
+Apply when designing, modifying or reviewing command-line programs, including standalone development tools.
+
+- Prefer clap 4 derive for non-trivial Rust CLIs; typed subcommands/options, help/version and explicit invalid-input handling.
+- Stable exit codes and versioned machine-readable results for automation.
+- Read-only checks; explicit, bounded writes and no silent repair.
+- Test the actual binary, including negative cases and supported OS targets.
+- No unverified release or runtime deployment.
+
+Read `$CURSOR_DEV_TOOLKIT_ROOT/skills/engineering/_standards/rust-cli-engineering-standard.md` and the relevant general Rust, Testing & Quality and Security & Supply-Chain sections.

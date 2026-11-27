@@ -3,7 +3,7 @@ $ErrorActionPreference = "Stop"
 
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $PluginDest = Join-Path $env:USERPROFILE ".cursor\plugins\local\cursor-dev-toolkit"
-$ExcludeDirs = @('.git', '.cursor-toolkit-install')
+$ExcludeDirs = @('.git', '.cursor-toolkit-install', (Join-Path $Root 'target'), (Join-Path $Root 'tools\docs-guard\target'))
 
 function Log($msg) { Write-Host "install: $msg" }
 

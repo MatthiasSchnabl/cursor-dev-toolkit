@@ -2,3 +2,6 @@
 Thumbs.db
 *.log
 .cursor-toolkit-install
+
+# Rust workspace build artifacts
+/target/

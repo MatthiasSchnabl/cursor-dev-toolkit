@@ -31,6 +31,7 @@ The auto-attached `*-engineering-standard.mdc` files are deliberately compact an
 Canonical detailed standards are read from `$CURSOR_DEV_TOOLKIT_ROOT` (set by the SessionStart hook):
 
 - Rust → `$CURSOR_DEV_TOOLKIT_ROOT/skills/engineering/rust-engineering/references/rust-engineering-standard.md`
+- Rust CLI (command-line applications and tools) → `$CURSOR_DEV_TOOLKIT_ROOT/skills/engineering/_standards/rust-cli-engineering-standard.md`; apply alongside Rust, Testing/Quality and Security/Supply Chain
 - Axum/HTTP → `$CURSOR_DEV_TOOLKIT_ROOT/skills/engineering/_standards/rust-axum-engineering-standard.md`
 - SQLx/PostgreSQL → `$CURSOR_DEV_TOOLKIT_ROOT/skills/engineering/_standards/rust-sqlx-postgresql-engineering-standard.md`
 - Testing/Quality → `$CURSOR_DEV_TOOLKIT_ROOT/skills/engineering/_standards/testing-quality-engineering-standard.md`
